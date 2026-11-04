@@ -1,27 +1,24 @@
 local _, ns = ...
 local L = ns.L
-local Style = ns.Style
-local C = Style.COLORS
+local Kit = ns.Kit
 
 ---------------------------------------------------------------------------
--- Tab "Wish list" and the wish form (GUILDON_PLAN.md step 3). Data and rules in Wishes.lua.
--- Left: the wishes (filter: for me, my wishes, I can craft, all), grouped; right: the chosen wish with what the
--- player may do (accept, crafted, sent, give back, received, cancel, delete, whisper).
+-- Tab "Wish list" and the wish form (GUILDON_PLAN.md step 3; Don style 02.11.2026, mockup docs/layout_2026-11-02/guildon/
+-- part 5). Data and rules in Wishes.lua.
+-- On top the filter chips (for me, my wishes, I can craft, all), the state, the count and "New wish"; the wishes grouped
+-- (fold by click), two lines each with the state as a pill; right the chosen wish in a card with what the player may do
+-- (accept, crafted, sent, give back, received, cancel, delete, whisper, shopping list). Under 960 px the card goes over
+-- the list. The form is DonCore's Kit.Dialog with a segmented choice for the payment.
 ---------------------------------------------------------------------------
-local UI = ns.UI
-local PAGE_W, CONTENT_H = ns.PAGE_W, ns.CONTENT_H
-local LIST_W = 340
-local DETAIL_X = LIST_W + 12
-local DETAIL_W = PAGE_W - DETAIL_X
-local TOP = 30
+local S = Kit.SIZE
+local DETAIL_W = 320
 
 ns.WISH_FILTERS = { "me", "mine", "craft", "all" }
 local FILTER_TEXT = { me = "For me", mine = "My wishes", craft = "I can craft", all = "All wishes" }
-local STATE_KIND = { o = "open", a = "accepted", m = "crafted", s = "sent", d = "done", c = "done", x = "bad", e = "done" }
-local PAL = Style.PAL
+-- the colour of a state (Kit.STATUS): open blue, accepted yellow, crafted and sent green, done grey, deleted red
+local STATE_KIND = { o = "blue", a = "yellow", m = "green", s = "green", d = "grey", c = "grey", x = "red", e = "grey" }
 ns.WISH_STATES = { "all", "o", "a", "m", "s", "d" }
 
-local function Icon(tex, size) return ("|T%s:%d:%d|t"):format(tostring(tex), size or 16, size or 16) end
 local function ClassFile(owner)
   local m = ns.Member(owner)
   return m and m.classFile ~= "" and m.classFile or ((ns.InfoOf(owner) or {}).classFile or "")
@@ -34,124 +31,13 @@ local function ClassWho(owner)
 end
 local function RecipeTitle(spell) return ns.SpellName(spell) or L["Recipe %d"]:format(spell) end
 
--- an input field (numeric fields take digits only); the look is Kit.lua's
-function UI.Field(parent, w, numeric, hint, maxLetters)
-  return UI.EditBox(parent, w, hint, { numeric = numeric, maxLetters = maxLetters })
-end
-
 ---------------------------------------------------------------------------
--- Wish form
+-- Wish form (Kit.Dialog, mockup part 5): what is wished and who can craft it, amount, payment, tip, note, for whom
 ---------------------------------------------------------------------------
 local form
-local FORM_W, FORM_H = 400, 336
-local BODY_TOP = 76 -- top of the "Amount" row while hint and reagents take one line each
-
--- grow the form when the hint or the reagents wrap
-local function LayoutForm()
-  local function H(fs)
-    local t = fs:GetText()
-    if not t or t == "" then return 0 end
-    return tonumber(fs:GetStringHeight()) or 12
-  end
-  local top = math.max(BODY_TOP, 32 + H(form.sub) + 2 + H(form.reag) + 10)
-  form.body:ClearAllPoints()
-  form.body:SetPoint("TOPLEFT", form, "TOPLEFT", 0, -top)
-  form:SetHeight(FORM_H + top - BODY_TOP)
-end
-
-local function BuildForm()
-  form = CreateFrame("Frame", "GuildonCraftsWishForm", UIParent)
-  form:SetSize(FORM_W, FORM_H)
-  form:SetPoint("CENTER", UIParent, "CENTER", 0, 40)
-  form:SetFrameStrata("DIALOG")
-  form:EnableMouse(true)
-  form:SetMovable(true)
-  form:RegisterForDrag("LeftButton")
-  form:SetScript("OnDragStart", function(self) self:StartMoving() end)
-  form:SetScript("OnDragStop", function(self) self:StopMovingOrSizing() end)
-  ns.UI.Skin(form, Style.PAL.popup, { C.background[1], C.background[2], C.background[3], 0.97 })
-  form.icon = form:CreateTexture(nil, "ARTWORK")
-  form.icon:SetSize(32, 32)
-  form.icon:SetPoint("TOPLEFT", form, "TOPLEFT", 12, -12)
-  form.title = UI.Text(form, "GameFontNormal", 52, -14, FORM_W - 64, "gold")
-  form.sub = UI.Text(form, "GameFontHighlightSmall", 52, -32, FORM_W - 64, "textSecondary")
-  form.reag = UI.Text(form, "GameFontDisableSmall", 52, -48, FORM_W - 64, "textHint")
-  -- the hint can wrap (longer in other languages): the reagents sit under it
-  -- and the rows below move down with them (LayoutForm)
-  form.reag:ClearAllPoints()
-  form.reag:SetPoint("TOPLEFT", form.sub, "BOTTOMLEFT", 0, -2)
-  form.body = CreateFrame("Frame", nil, form)
-  form.body:SetSize(FORM_W, FORM_H - BODY_TOP - 40)
-  form.body:SetPoint("TOPLEFT", form, "TOPLEFT", 0, -BODY_TOP)
-  local body = form.body
-  local y = 0
-  local function Label(text, yy) return UI.Text(body, "GameFontHighlightSmall", 12, yy - 4, 110, "textSecondary"):SetText(text) end
-  Label(L["Amount"], y)
-  form.count = UI.Field(body, 60, true, "1", 3)
-  form.count:SetPoint("TOPLEFT", body, "TOPLEFT", 126, y)
-  y = y - 30
-  Label(L["Payment"], y)
-  form.pay = {}
-  for i, key in ipairs(ns.PAY) do
-    local b = UI.CheckBox(body, L[ns.PAY_TEXT[key]], function() return form.payKey == key end,
-      function() form.payKey = key form:SyncPay() end, { w = FORM_W - 138, h = 20 })
-    b:SetPoint("TOPLEFT", body, "TOPLEFT", 126, y - (i - 1) * 22)
-    b.key = key
-    form.pay[i] = b
-  end
-  function form:SyncPay()
-    for _, b in ipairs(self.pay) do b:Sync() end
-  end
-  y = y - 3 * 22 - 8
-  Label(L["Tip (gold)"], y)
-  form.tip = UI.Field(body, 60, true, "0", 4)
-  form.tip:SetPoint("TOPLEFT", body, "TOPLEFT", 126, y)
-  form.estimate = UI.Text(body, "GameFontHighlightSmall", 196, y - 4, FORM_W - 208, "textHint")
-  y = y - 30
-  Label(L["Note"], y)
-  form.note = UI.Field(body, FORM_W - 138, false, L["optional"], 60)
-  form.note:SetPoint("TOPLEFT", body, "TOPLEFT", 126, y)
-  y = y - 30
-  Label(L["For"], y)
-  form.target = UI.Dropdown(body, FORM_W - 138, {
-    title = L["Who should craft it"],
-    get = function() return form.targetKey or "" end,
-    options = function()
-      local out = { { "", L["Everyone who can craft it"] } }
-      for _, o in ipairs(form.spell and ns.CraftersOf(form.spell) or {}) do
-        if o ~= ns.MyName() then out[#out + 1] = { o, ns.ShortName(o) .. (ns.IsOnline(o) and "" or ("  (" .. L["offline"] .. ")")) } end
-      end
-      return out
-    end,
-    onPick = function(key) form.targetKey = key end,
-  })
-  form.target:SetPoint("TOPLEFT", body, "TOPLEFT", 126, y)
-  form.count.nextField, form.tip.nextField, form.note.nextField = form.tip, form.note, form.count
-  form.count.prevField, form.tip.prevField, form.note.prevField = form.note, form.count, form.tip
-  form.err = UI.Text(form, "GameFontHighlightSmall", 12, -FORM_H + 52, FORM_W - 24, "critical")
-  form.err:ClearAllPoints()
-  form.err:SetPoint("BOTTOMLEFT", form, "BOTTOMLEFT", 12, 40) -- moves with the height
-  form.send = UI.FlatButton(form, 120, 24, L["Make the wish"])
-  form.send:SetPoint("BOTTOMLEFT", form, "BOTTOMLEFT", 12, 12)
-  form.send:SetScript("OnClick", ns.Guard("wish send", function()
-    local count = tonumber(form.count:GetText() or "") or 1
-    local tip = (tonumber(form.tip:GetText() or "") or 0) * 10000
-    local w, why = ns.AddWish(form.spell, count, form.payKey, tip, form.note:GetText(), form.targetKey ~= "" and form.targetKey or nil, form.item)
-    if not w then
-      form.err:SetText(why == "full" and L["You have too many open wishes."] or L["Please check the amount."])
-      return
-    end
-    form:Hide()
-    ns.Print(L["Wish made: %s. Crafters in the guild see it in their wish list."]:format(ns.WishInfo(w).title))
-    ns.OpenTab("wishes")
-    if ns.SelectWish then ns.SelectWish((ns.MyName() or "") .. "#" .. w.id) end
-  end))
-  form.cancel = UI.FlatButton(form, 100, 24, L["Cancel"])
-  form.cancel:SetPoint("BOTTOMRIGHT", form, "BOTTOMRIGHT", -12, 12)
-  form.cancel:SetScript("OnClick", function() form:Hide() end)
-  if type(UISpecialFrames) == "table" then table.insert(UISpecialFrames, "GuildonCraftsWishForm") end
-  form:Hide()
-end
+local FORM_W = 440
+local LABEL_W = 120
+local ROW = S.button + S.gap
 
 local function ReagentText(info)
   local parts = {}
@@ -162,15 +48,108 @@ local function ReagentText(info)
   return #parts > 0 and L["Reagents: %s"]:format(table.concat(parts, ", ")) or ""
 end
 
+local function Send()
+  local count = form.count:GetValue() or 1
+  local tip = (form.tip:GetValue() or 0) * 10000
+  local w, why = ns.AddWish(form.spell, count, form.payKey, tip, form.note:GetText(), form.targetKey ~= "" and form.targetKey or nil, form.item)
+  if not w then
+    form.err:SetText(why == "full" and L["You have too many open wishes."] or L["Please check the amount."])
+    Kit.Fit(form.err, form:BodyWidth())
+    return
+  end
+  form:Hide()
+  ns.Print(L["Wish made: %s. Crafters in the guild see it in their wish list."]:format(ns.WishInfo(w).title))
+  ns.OpenTab("wishes")
+  if ns.SelectWish then ns.SelectWish((ns.MyName() or "") .. "#" .. w.id) end
+  return w
+end
+
+local function LayoutForm(d, w)
+  if not d.count then return end
+  local fw = math.max(60, w - LABEL_W - S.gap)
+  local fx = LABEL_W + S.gap
+  d.info:ClearAllPoints()
+  d.info:SetPoint("TOPLEFT", d.body, "TOPLEFT", 0, 0)
+  d.info:SetSize(w, 34)
+  d.sub:ClearAllPoints() d.sub:SetPoint("TOPLEFT", d.info, "TOPLEFT", 0, 0) Kit.Fit(d.sub, w)
+  d.reag:ClearAllPoints() d.reag:SetPoint("TOPLEFT", d.info, "TOPLEFT", 0, -18) Kit.Fit(d.reag, w)
+  local y = 44
+  local function Row(label, field, width)
+    label:ClearAllPoints()
+    label:SetPoint("TOPLEFT", d.body, "TOPLEFT", 0, -y - 7)
+    Kit.Fit(label, LABEL_W)
+    field:ClearAllPoints()
+    field:SetPoint("TOPLEFT", d.body, "TOPLEFT", fx, -y)
+    field:Layout(width)
+    y = y + ROW
+  end
+  Row(d.labels.count, d.count, 64)
+  Row(d.labels.pay, d.pay, fw)
+  local tipY = y
+  Row(d.labels.tip, d.tip, 64)
+  d.estimate:ClearAllPoints()
+  d.estimate:SetPoint("TOPLEFT", d.body, "TOPLEFT", fx + 64 + S.gap, -tipY - 7)
+  Kit.Fit(d.estimate, math.max(20, fw - 64 - S.gap))
+  Row(d.labels.note, d.note, fw)
+  Row(d.labels.target, d.target, fw)
+  d.err:ClearAllPoints()
+  d.err:SetPoint("TOPLEFT", d.body, "TOPLEFT", 0, -y - 2)
+  Kit.Fit(d.err, w)
+end
+
+local function BuildForm()
+  form = Kit.Dialog("GuildonCraftsWishForm", { width = FORM_W, height = 330, onLayout = function(d, w) LayoutForm(d, w) end })
+  local b = form.body
+  -- the hint and the reagents: one line each, the whole text in the tooltip
+  form.info = CreateFrame("Frame", nil, b)
+  form.sub = Kit.Text(form.info, "sub", Kit.C.muted)
+  form.reag = Kit.Text(form.info, "sub", Kit.C.quiet)
+  Kit.Stateful(form.info, function() end)
+  form.info._cutTexts = { form.sub, form.reag }
+  form.labels = {}
+  for k, text in pairs({ count = L["Amount"], pay = L["Payment"], tip = L["Tip (gold)"], note = L["Note"], target = L["For"] }) do
+    local fs = Kit.Text(b, "row", Kit.C.muted)
+    fs:SetText(text)
+    form.labels[k] = fs
+  end
+  form.count = Kit.EditBox(b, { numeric = true, min = 1, max = 9999, maxLetters = 3, placeholder = "1" })
+  local items = {}
+  for _, key in ipairs(ns.PAY) do items[#items + 1] = { value = key, text = L[ns.PAY_TEXT[key]], tip = L[ns.PAY_TEXT[key]] } end
+  form.pay = Kit.Segmented(b, { items = items, get = function() return form.payKey end, set = function(v) form.payKey = v end })
+  form.tip = Kit.EditBox(b, { numeric = true, min = 0, max = 9999, maxLetters = 4, placeholder = "0" })
+  form.estimate = Kit.Text(b, "sub", Kit.C.quiet)
+  form.note = Kit.EditBox(b, { maxLetters = 60, placeholder = L["optional"], clear = true })
+  form.target = Kit.Dropdown(b, {
+    items = function()
+      local out = { { value = "", text = L["Everyone who can craft it"] } }
+      for _, o in ipairs(form.spell and ns.CraftersOf(form.spell) or {}) do
+        if o ~= ns.MyName() then out[#out + 1] = { value = o, text = ns.ShortName(o) .. (ns.IsOnline(o) and "" or ("  (" .. L["offline"] .. ")")) } end
+      end
+      return out
+    end,
+    get = function() return form.targetKey or "" end,
+    set = function(v) form.targetKey = v end,
+  })
+  form.target:SetTooltip(L["Who should craft it"], { L["Click: choose"] })
+  form.count:SetNext(form.tip) form.tip:SetNext(form.note) form.note:SetNext(form.count)
+  form.err = Kit.Text(b, "sub", Kit.C.red)
+  form:SetButtons({
+    { text = L["Cancel"], onClick = function(d) d:Hide() end },
+    { text = L["Make the wish"], kind = "primary", onClick = function() Send() end },
+  })
+  form.Send = Send
+  form:SetBodySize(FORM_W - 2 * S.pad, 44 + 5 * ROW + 18)
+end
+
 -- item names arrive later from the server ("Item 2835" until then): fill them in when the form is open
 function ns.WishFormItemInfo()
   if not form or not form:IsShown() then return end
   if form.item then
-    form.title:SetText(L["Wish: %s"]:format(ns.ItemName(form.item) or L["Item %d"]:format(form.item)))
+    form:SetTitle(L["Wish: %s"]:format(ns.ItemName(form.item) or L["Item %d"]:format(form.item)), ns.ItemIcon(form.item))
   elseif form.spell then
     form.reag:SetText(ReagentText(ns.RecipeInfo(form.spell)))
+    form:Layout()
   end
-  LayoutForm()
 end
 
 -- item: a wish for a gathered item (reagent) instead of a recipe
@@ -179,16 +158,14 @@ function ns.ShowWishForm(spell, item)
   if not form then BuildForm() end
   form.spell, form.item = not item and spell or nil, item
   if item then
-    form.icon:SetTexture(ns.ItemIcon(item))
-    form.title:SetText(L["Wish: %s"]:format(ns.ItemName(item) or L["Item %d"]:format(item)))
+    form:SetTitle(L["Wish: %s"]:format(ns.ItemName(item) or L["Item %d"]:format(item)), ns.ItemIcon(item))
     local prof = ns.GatherProf(item)
     form.sub:SetText(prof and L["Members with %s see it."]:format(ns.ProfName(prof)) or L["Gatherers in the guild see it."])
     form.count:SetMaxLetters(4)
     form.reag:SetText("")
   else
     local info = ns.RecipeInfo(spell)
-    form.icon:SetTexture(ns.RecipeIcon and ns.RecipeIcon(spell, info) or ns.SpellIcon(spell))
-    form.title:SetText(L["Wish: %s"]:format(RecipeTitle(spell)))
+    form:SetTitle(L["Wish: %s"]:format(RecipeTitle(spell)), ns.RecipeIcon and ns.RecipeIcon(spell, info) or ns.SpellIcon(spell))
     local n = #ns.CraftersOf(spell)
     local mine = 0
     for _, o in ipairs(ns.CraftersOf(spell)) do if o == ns.MyName() then mine = 1 end end
@@ -196,18 +173,18 @@ function ns.ShowWishForm(spell, item)
     form.count:SetMaxLetters(3)
     form.reag:SetText(ReagentText(info))
   end
-  form.count:SetText("1")
-  form.tip:SetText("")
-  form.note:SetText("")
+  form.count:SetValue("1")
+  form.tip:SetValue("")
+  form.note:SetValue("")
   form.payKey = "m"
   form.targetKey = ""
-  form:SyncPay()
-  form.target:Sync()
+  form.pay:Update()
+  form.target:Update()
   form.err:SetText("")
-  LayoutForm()
   local est = item and ns.Price and ns.Price(item) or (not item and ns.ReagentCost and ns.ReagentCost(spell, 1))
   form.estimate:SetText(est and (item and L["AH price about %s each"] or L["reagents about %s"]):format(ns.MoneyText(est)) or "")
   form:Show()
+  form:Layout()
   return form
 end
 
@@ -229,12 +206,14 @@ local function Entry(e)
   local info = ns.WishInfo(e)
   local r = ns.WishRole(e)
   local whoName = r.mine and e.crafter or e.owner
-  local count = e.count > 1 and ("  |c%sx%d|r"):format(Style.Hex("textSecondary"), e.count) or ""
-  local chip = { L[ns.STATE_TEXT[e.state] or "open"], STATE_KIND[e.state] or "open" }
-  if r.lost then chip = { L["taken"], "bad" } end
-  return { key = e.key, wish = e, icon = info.icon, text = info.title .. count,
-    sub = whoName and ClassWho(whoName) or nil, chip = chip,
-    color = (e.state == "o" or e.state == "a" or e.state == "m" or e.state == "s") and "textPrimary" or "textHint" }
+  local pill = { L[ns.STATE_TEXT[e.state] or "open"], STATE_KIND[e.state] or "blue" }
+  if r.lost then pill = { L["taken"], "red" } end
+  local active = e.state == "o" or e.state == "a" or e.state == "m" or e.state == "s"
+  -- (02.11.2026, Daniel) the item's tooltip under the mouse, its quality colour on the name (not on the symbol's edge)
+  local itemID, quality = ns.RecipeItemQuality(info)
+  return { key = e.key, wish = e, icon = info.icon, title = info.title .. (e.count > 1 and (" x" .. e.count) or ""),
+    sub = whoName and ClassWho(whoName) or nil, pill = pill, status = pill[2], itemID = itemID,
+    titleColor = not active and Kit.C.muted or (quality and Kit.QualityColor(quality)) or nil, rightWidth = 90 }
 end
 
 function ns.WishEntries()
@@ -257,8 +236,7 @@ function ns.WishEntries()
   local function Group(list, key, title)
     if #list == 0 then return end
     table.sort(list, Sort)
-    out[#out + 1] = { key = "h:" .. key, fold = key, color = "gold", topLine = #out > 0,
-      text = (closed[key] and "+ " or "- ") .. title .. " (" .. #list .. ")" }
+    out[#out + 1] = { kind = "group", key = "h:" .. key, fold = key, text = title, count = #list, collapsed = closed[key] and true or false }
     if not closed[key] then for _, e in ipairs(list) do out[#out + 1] = Entry(e) end end
   end
   Group(craft, "craft", L["For me to craft"])
@@ -267,284 +245,226 @@ function ns.WishEntries()
   return out, #mine + #craft + #other
 end
 
--- buttons at the bottom of the detail: label, colour, action
+-- what the player may do with a wish: label, kind of the button (primary, danger, secondary), action
 local function Actions(e)
   local r = ns.WishRole(e)
   local me = ns.MyName()
   local out = {}
-  local function Add(label, fn, color) out[#out + 1] = { label = label, fn = fn, color = color } end
+  local function Add(label, fn, kind) out[#out + 1] = { label = label, fn = fn, kind = kind } end
   if r.mine then
     if e.state == "a" or e.state == "m" or e.state == "s" then
-      Add(L["Received"], function() ns.SetWishState(e.id, "d") if ns.CountThanks then ns.CountThanks(e.crafter) end end, "good")
+      Add(L["Received"], function() ns.SetWishState(e.id, "d") if ns.CountThanks then ns.CountThanks(e.crafter) end end, "primary")
       Add(L["Whisper %s"]:format(ns.ShortName(e.crafter)), function() ns.WhisperAbout(e.crafter, e) end)
     end
     if e.spell and e.pay == "m" and (e.state == "o" or e.state == "a") and ns.ShoppingList then
       Add(L["Shopping list"], function() ns.ShoppingList(e.spell, e.count) end)
     end
     if e.state == "o" or e.state == "a" or e.state == "m" or e.state == "s" then
-      Add(L["Cancel wish"], function() ns.SetWishState(e.id, "c") end, "textSecondary")
+      Add(L["Cancel wish"], function() ns.SetWishState(e.id, "c") end)
     else
-      Add(L["Remove"], function() ns.DeleteWish(me, e.id) end, "textSecondary")
+      Add(L["Remove"], function() ns.DeleteWish(me, e.id) end)
     end
     return out
   end
   if r.lost then
-    Add(L["Give back"], function() ns.SetJob(e.owner, e.id, nil) end, "textSecondary")
+    Add(L["Give back"], function() ns.SetJob(e.owner, e.id, nil) end)
   elseif r.crafter then
-    if e.state == "a" then Add(L["Crafted"], function() ns.SetJob(e.owner, e.id, "m") end, "good") end
-    if e.state == "m" then Add(L["Sent"], function() ns.SetJob(e.owner, e.id, "s") end, "good") end
-    if e.state ~= "s" then Add(L["Give back"], function() ns.SetJob(e.owner, e.id, nil) end, "textSecondary") end
+    if e.state == "a" then Add(L["Crafted"], function() ns.SetJob(e.owner, e.id, "m") end, "primary") end
+    if e.state == "m" then Add(L["Sent"], function() ns.SetJob(e.owner, e.id, "s") end, "primary") end
+    if e.state ~= "s" then Add(L["Give back"], function() ns.SetJob(e.owner, e.id, nil) end) end
   elseif e.state == "o" and r.forMe then
-    Add(L["Accept"], function() ns.SetJob(e.owner, e.id, "a") end, "good")
+    Add(L["Accept"], function() ns.SetJob(e.owner, e.id, "a") end, "primary")
   end
   if e.state ~= "d" and e.state ~= "c" and e.state ~= "x" then
     Add(L["Whisper %s"]:format(ns.ShortName(e.owner)), function() ns.WhisperAbout(e.owner, e) end)
   end
-  if r.officer and e.state ~= "x" then Add(L["Delete"], function() ns.DeleteWish(e.owner, e.id) end, "critical") end
+  if r.officer and e.state ~= "x" then Add(L["Delete"], function() ns.DeleteWish(e.owner, e.id) end, "danger") end
   return out
 end
 ns.WishActions = Actions
 
-local function Line(d, i, label, text, chip)
-  local l = d.lines[i]
-  l.label:SetText(label)
-  l.text:SetText(chip and "" or (text or ""))
-  if chip then l.chip:Set(chip[1], chip[2]) l.chip:Show() else l.chip:Hide() end
-  l:Show()
-end
+local Refresh
 
-local function ShowDetail(key)
-  local d = page.detail
-  page.selected = key
-  local e = key and ns.Wish(key)
-  for _, l in ipairs(d.lines) do l:Hide() end
-  for _, b in ipairs(d.buttons) do b:Hide() end
-  for _, r in ipairs(d.rows) do r:Hide() end
-  if not e then
-    d.icon:Hide()
-    d.title:SetText("")
-    d.sub:SetText(L["Choose a wish on the left. New wishes start in the recipes: choose a recipe, then \"Wish\"."])
-    d.rhead:Hide()
-    return
-  end
+-- the card: who, state, payment, tip, for whom, note, when; the reagents for the whole amount with what the player has;
+-- up to four actions
+local function FillDetail(d, e)
   local info = ns.WishInfo(e)
-  d.icon:Show()
-  d.icon.tex:SetTexture(info.icon)
-  d.icon.item, d.icon.spell = info.item, e.spell
-  d.title:SetText(info.title .. (e.count > 1 and (" x" .. e.count) or ""))
-  d.sub:SetText(info.gather and (info.prof and L["To gather: %s"]:format(ns.ProfName(info.prof)) or L["To gather"]) or ns.ProfName(info.prof or 0))
-  local i = 0
-  local function Next(label, text, chip) i = i + 1 Line(d, i, label, text, chip) end
-  local on = ns.IsOnline(e.owner)
-  Next(L["From"], Colored(e.owner) .. "  |c" .. Style.Hex(on and "good" or "textHint") .. (on and L["online"] or L["offline"]) .. "|r")
-  Next(L["State"], nil, { ns.WishStateText(e), STATE_KIND[e.state] or "open" })
   local r = ns.WishRole(e)
-  if r.lost then Next("", "|c" .. Style.Hex("critical") .. L["Already accepted by %s."]:format(ns.ShortName(e.crafter)) .. "|r") end
-  Next(L["Payment"], L[ns.PAY_TEXT[e.pay] or "I bring the reagents"])
-  if (e.tip or 0) > 0 then Next(L["Tip"], ns.MoneyText(e.tip)) end
-  if e.target then Next(L["For"], Colored(e.target)) end
-  if e.note ~= "" then Next(L["Note"], e.note) end
-  local left = math.max(0, e.expires - time())
-  Next(L["Made"], ns.UI.AgeText(e.created) .. ((e.state == "o") and ("  |c" .. Style.Hex("textHint") .. L["runs out in %d days"]:format(math.ceil(left / 86400)) .. "|r") or ""))
+  local pill = { ns.WishStateText(e), STATE_KIND[e.state] or "blue" }
+  if r.lost then pill = { L["taken"], "red" } end
+  local itemID, quality = ns.RecipeItemQuality(info)
+  d:SetHead({ icon = info.icon, title = info.title .. (e.count > 1 and (" x" .. e.count) or ""), pill = pill,
+    itemID = itemID, titleColor = quality and Kit.QualityColor(quality) or nil,
+    meta = info.gather and (info.prof and L["To gather: %s"]:format(ns.ProfName(info.prof)) or L["To gather"]) or ns.ProfName(info.prof or 0) })
+  local acts = {}
+  for i, a in ipairs(Actions(e)) do
+    if i > 4 then break end
+    acts[#acts + 1] = { text = a.label, kind = a.kind, onClick = function() a.fn() Refresh() end }
+  end
+  d:SetActions(acts)
+  d:Begin()
+  local on = ns.IsOnline(e.owner)
+  d:Line(L["From"], Kit.C.muted, Colored(e.owner) .. "  " .. (on and L["online"] or L["offline"]), on and Kit.C.green or Kit.C.quiet)
+  if r.lost then d:Line(L["Already accepted by %s."]:format(ns.ShortName(e.crafter)), Kit.C.red) end
+  d:Line(L["Payment"], Kit.C.muted, L[ns.PAY_TEXT[e.pay] or "I bring the reagents"], Kit.C.title)
+  if (e.tip or 0) > 0 then d:Line(L["Tip"], Kit.C.muted, ns.MoneyText(e.tip), Kit.C.yellow) end
+  d:Line(L["For"], Kit.C.muted, e.target and Colored(e.target) or L["Everyone who can craft it"], Kit.C.title)
+  d:Line(L["Made"], Kit.C.muted, ns.UI.AgeText(e.created), Kit.C.title)
+  if e.state == "o" then
+    local left = math.max(0, e.expires - time())
+    d:Line(L["runs out in %d days"]:format(math.ceil(left / 86400)), Kit.C.quiet)
+  end
+  if e.note ~= "" then
+    d:Section(L["Note"])
+    d:Para(e.note, Kit.C.body)
+  end
   -- reagents for the whole amount, with what the player has
-  local y = -60 - i * 20 - 6
-  d.rhead:ClearAllPoints()
-  d.rhead:SetPoint("TOPLEFT", d, "TOPLEFT", 8, y)
-  d.rhead:Show()
-  d.rhead:SetText(L["Reagents for %d"]:format(e.count))
-  y = y - 18
-  for k, rg in ipairs(info.reagents or {}) do
-    local row = d.rows[k]
-    if not row or y < -(d:GetHeight() or (CONTENT_H - TOP)) + 60 then break end
-    local need, have = rg[2] * e.count, ns.ItemCount(rg[1])
-    row.item = rg[1]
-    row.tex:SetTexture(ns.ItemIcon(rg[1]) or "Interface\\Icons\\INV_Misc_QuestionMark")
-    row.name:SetText(ns.ItemName(rg[1]) or L["Item %d"]:format(rg[1]))
-    row.count:SetText(("%d/%d"):format(have, need))
-    UI.Color(row.count, have >= need and "good" or "critical")
-    UI.Color(row.name, have >= need and "textPrimary" or "critical")
-    row:ClearAllPoints()
-    row:SetPoint("TOPLEFT", d, "TOPLEFT", 8, y)
-    row:Show()
-    y = y - 18
+  if info.gather then
+    d:Section(L["In your bags: %d of %d"]:format(ns.ItemCount(e.item), e.count))
+  elseif not info.reagents or #info.reagents == 0 then
+    d:Section(L["Reagents"])
+    d:Para(L["Reagents unknown until a crafter opens the window."], Kit.C.muted)
+  else
+    d:Section(L["Reagents for %d"]:format(e.count))
+    for _, rg in ipairs(info.reagents) do
+      local need, have = rg[2] * e.count, ns.ItemCount(rg[1])
+      local ok = have >= need
+      d:Item(rg[1], ns.ItemName(rg[1]) or L["Item %d"]:format(rg[1]), ok and Kit.C.body or Kit.C.red, ("%d/%d"):format(have, need),
+        ok and Kit.C.green or Kit.C.red)
+    end
   end
-  if info.gather then d.rhead:SetText(L["In your bags: %d of %d"]:format(ns.ItemCount(e.item), e.count))
-  elseif not info.reagents or #info.reagents == 0 then d.rhead:SetText(L["Reagents unknown until a crafter opens the window."]) end
-  -- buttons
-  local acts = Actions(e)
-  local x = 8
-  for k, a in ipairs(acts) do
-    local b = d.buttons[k]
-    if not b then break end
-    b.label:SetText(a.label)
-    b.keepColor = true
-    UI.Color(b.label, a.color or "textPrimary")
-    b.action = a.fn
-    local w = math.max(70, math.min(150, (b.label:GetStringWidth() or 60) + 20))
-    b:SetWidth(w)
-    b:ClearAllPoints()
-    b:SetPoint("BOTTOMLEFT", d, "BOTTOMLEFT", x, 8)
-    x = x + w + 6
-    b:Show()
-  end
+  d:End()
 end
 
-local function Refresh()
+local function Placeholder(d)
+  d.close:Hide()
+  d:SetHead({ title = L["Wish list"], meta = L["Choose a wish on the left."] })
+  d:SetActions({})
+  d:Begin()
+  d:Para(L["Choose a wish on the left. New wishes start in the recipes: choose a recipe, then \"Wish\"."], Kit.C.muted)
+  d:End()
+end
+
+function Refresh()
   if not page then return end
   ns.InvalidateWishes()
+  local db = State()
   local data, n = ns.WishEntries()
-  page.filter:Sync()
-  page.list:SetData(data)
+  page.chips:SetActive(db.wishFilter)
+  page.state:Update()
+  page.list:SetItems(data)
   page.count:SetText(L["%d wishes"]:format(n))
-  page.empty:SetShown(n == 0)
   local sel = page.selected
-  if sel and not ns.Wish(sel) then sel = nil end
-  if not sel then for _, e in ipairs(data) do if e.wish then sel = e.key break end end end
-  page.list:SetSelected(sel, true)
-  ShowDetail(sel)
+  if sel and not ns.Wish(sel) then sel = nil page.overlay = nil end
+  -- a wide window shows the first wish by itself; a narrow one only what the player picked
+  if not sel and page._mode == "full" then for _, e in ipairs(data) do if e.wish then sel = e.key break end end end
+  page.selected = sel
+  local picked
+  for _, e in ipairs(data) do if e.wish and e.key == sel then picked = e break end end
+  page.list:Select(picked)
+  if page._w then page:Layout(page._w, page._h, page._mode) end
 end
 ns.RefreshWishes = Refresh
 
 function ns.SelectWish(key)
   if not page then return end
   page.selected = key
+  page.overlay = key ~= nil or nil
   Refresh()
 end
 
 ns.PAGE_BUILDERS.wishes = function(p)
   page = p
   State()
-  p.filter = UI.Dropdown(p, 140, {
-    title = L["Filter"],
-    get = function() return State().wishFilter end,
-    options = function()
-      local out = {}
-      for _, f in ipairs(ns.WISH_FILTERS) do out[#out + 1] = { f, L[FILTER_TEXT[f]] } end
-      return out
-    end,
-    onPick = function(key) State().wishFilter = key p.selected = nil Refresh() end,
-  })
-  p.filter:SetPoint("TOPLEFT", p, "TOPLEFT", 0, 0)
+  p.chips = Kit.ChipBar(p, { onChange = function(key)
+    State().wishFilter = key
+    p.selected, p.overlay = nil, nil
+    Refresh()
+  end })
+  for _, f in ipairs(ns.WISH_FILTERS) do p.chips:Add(f, L[FILTER_TEXT[f]]) end
   -- a small filter by state (Daniel 26.10., Gemini draft)
-  p.state = UI.Dropdown(p, 130, {
-    title = L["State"],
-    get = function() return State().wishState or "all" end,
-    options = function()
-      local out = { { "all", L["All states"] } }
-      for _, k in ipairs(ns.WISH_STATES) do if k ~= "all" then out[#out + 1] = { k, L[ns.STATE_TEXT[k]] } end end
+  p.state = Kit.Dropdown(p, {
+    items = function()
+      local out = { { value = "all", text = L["All states"] } }
+      for _, k in ipairs(ns.WISH_STATES) do if k ~= "all" then out[#out + 1] = { value = k, text = L[ns.STATE_TEXT[k]] } end end
       return out
     end,
-    onPick = function(key) State().wishState = key ~= "all" and key or nil p.selected = nil Refresh() end,
+    get = function() return State().wishState or "all" end,
+    set = function(key) State().wishState = key ~= "all" and key or nil p.selected, p.overlay = nil, nil Refresh() end,
   })
-  p.state:SetPoint("TOPLEFT", p, "TOPLEFT", 148, 0)
-  p.new = UI.FlatButton(p, 110, 22, L["New wish"])
-  p.new:SetPoint("TOPLEFT", p, "TOPLEFT", 286, 0)
-  p.new:SetScript("OnClick", ns.Guard("wish new", function()
+  p.state:SetTooltip(L["State"], { L["Click: choose"] })
+  p.count = Kit.Text(p, "sub", Kit.C.muted, "RIGHT")
+  p.new = Kit.Button(p, L["New wish"], { kind = "primary", onClick = function()
     ns.Print(L["Choose a recipe, then click \"Wish\" below its details."])
     ns.OpenTab("recipes")
-  end))
-  p.count = UI.Text(p, "GameFontHighlightSmall", PAGE_W - 160, -6, 160, "textHint")
-  p.count:SetJustifyH("RIGHT")
-  p.list = ns.NewList(p, { x = 0, y = -TOP, width = LIST_W, height = CONTENT_H - TOP, rowHeight = 38, twoLine = true,
-    onSelect = function(e)
-      if e.fold then
-        local db = State()
-        db.wishFold = type(db.wishFold) == "table" and db.wishFold or {}
-        db.wishFold[e.fold] = not db.wishFold[e.fold] or nil
-        Refresh()
-      elseif e.wish then
-        p.list:SetSelected(e.key)
-        ShowDetail(e.key)
-      end
-    end })
-  p.empty = UI.Text(p, "GameFontHighlight", 0, -TOP - 40, LIST_W, "textSecondary")
-  p.empty:SetJustifyH("CENTER")
-  p.empty:SetText(L["No wishes here. Wishes start in the recipes."])
-
-  local d = CreateFrame("Frame", nil, p)
-  d:SetSize(DETAIL_W, CONTENT_H - TOP)
-  d:SetPoint("TOPLEFT", p, "TOPLEFT", DETAIL_X, -TOP)
-  UI.Skin(d, PAL.edge, PAL.well)
-  p.detail = d
-  d.icon = CreateFrame("Button", nil, d)
-  d.icon:SetSize(36, 36)
-  d.icon:SetPoint("TOPLEFT", d, "TOPLEFT", 8, -8)
-  d.icon.tex = d.icon:CreateTexture(nil, "ARTWORK")
-  d.icon.tex:SetAllPoints()
-  d.icon:SetScript("OnEnter", function(self)
-    if not GameTooltip then return end
-    ns.Call(GameTooltip.SetOwner, GameTooltip, self, "ANCHOR_RIGHT")
-    if self.item and self.item > 0 then ns.Call(GameTooltip.SetHyperlink, GameTooltip, "item:" .. self.item)
-    elseif self.spell then ns.Call(GameTooltip.SetSpellByID, GameTooltip, self.spell) end
-    ns.Call(GameTooltip.Show, GameTooltip)
-  end)
-  d.icon:SetScript("OnLeave", function() if GameTooltip then ns.Call(GameTooltip.Hide, GameTooltip) end end)
-  d.sub = UI.Text(d, "GameFontHighlightSmall", 52, -9, DETAIL_W - 60, "gold")
-  d.title = UI.Text(d, "GameFontNormalLarge", 52, -23, DETAIL_W - 60, "textPrimary")
-  d.lines = {}
-  for i = 1, 9 do
-    local l = CreateFrame("Frame", nil, d)
-    l:SetSize(DETAIL_W - 16, 20)
-    l:SetPoint("TOPLEFT", d, "TOPLEFT", 8, -60 - (i - 1) * 20)
-    l.label = UI.Text(l, "GameFontHighlightSmall", 4, -4, 76, "textSecondary")
-    l.text = UI.Text(l, "GameFontHighlightSmall", 84, -4, DETAIL_W - 104, "textPrimary")
-    l.chip = UI.Chip(l, 16)
-    l.chip:SetPoint("LEFT", l, "LEFT", 84, 0)
-    l.chip:Hide()
-    l.line = UI.Line(l)
-    l.line:SetPoint("BOTTOMLEFT", l, "BOTTOMLEFT", 0, 0)
-    l.line:SetPoint("BOTTOMRIGHT", l, "BOTTOMRIGHT", 0, 0)
-    l:Hide()
-    d.lines[i] = l
-  end
-  d.rhead = UI.Text(d, "GameFontNormalSmall", 8, -200, DETAIL_W - 16, "gold")
-  d.rows = {}
-  for i = 1, 8 do
-    local r = CreateFrame("Button", nil, d)
-    r:SetSize(DETAIL_W - 16, 18)
-    r.tex = r:CreateTexture(nil, "ARTWORK")
-    r.tex:SetSize(16, 16)
-    r.tex:SetPoint("LEFT", r, "LEFT", 0, 0)
-    r.count = r:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    r.count:SetPoint("RIGHT", r, "RIGHT", 0, 0)
-    r.name = r:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    r.name:SetPoint("LEFT", r.tex, "RIGHT", 6, 0)
-    r.name:SetPoint("RIGHT", r.count, "LEFT", -6, 0)
-    r.name:SetJustifyH("LEFT")
-    r:SetScript("OnEnter", function(self)
-      if not GameTooltip or not self.item then return end
-      ns.Call(GameTooltip.SetOwner, GameTooltip, self, "ANCHOR_RIGHT")
-      ns.Call(GameTooltip.SetHyperlink, GameTooltip, "item:" .. self.item)
-      ns.Call(GameTooltip.Show, GameTooltip)
-    end)
-    r:SetScript("OnLeave", function() if GameTooltip then ns.Call(GameTooltip.Hide, GameTooltip) end end)
-    r:Hide()
-    d.rows[i] = r
-  end
-  d.buttons = {}
-  for i = 1, 4 do
-    local b = UI.FlatButton(d, 100, 24, "")
-    b:SetScript("OnClick", ns.Guard("wish action", function(self)
-      if self.action then self.action() end
+  end })
+  p.new:SetTooltip(L["New wish"], { L["Choose a recipe, then click \"Wish\" below its details."] })
+  p.list = Kit.List(p, {
+    onToggle = function(e)
+      if not e.fold then return end
+      local db = State()
+      db.wishFold = type(db.wishFold) == "table" and db.wishFold or {}
+      db.wishFold[e.fold] = e.collapsed or nil
       Refresh()
-    end))
-    b:Hide()
-    d.buttons[i] = b
-  end
-  p.OnResize = function(self, h)
-    self.list:SetHeight(h - TOP)
-    self.detail:SetHeight(h - TOP)
-    if self:IsShown() and self.selected then ShowDetail(self.selected) end
-  end
-  -- wider window: the wish list takes the extra width, the detail box keeps its size and moves right
-  p.OnWidth = function(self, w)
-    local dw = w - PAGE_W
+    end,
+    onClick = function(e)
+      if not e.wish then return end
+      p.selected, p.overlay = e.key, true
+      p.list:Select(e)
+      ns.Relayout()
+    end,
+  })
+  p.list:SetEmpty(L["No wishes here. Wishes start in the recipes."])
+  p.detail = Kit.Detail(p, { onClose = function()
+    p.overlay = nil
+    if p._mode ~= "full" then p.selected = nil p.list:Select(nil) end
+    ns.Relayout()
+  end })
+  p.Hint = function() return L["New wishes start in the recipes. Open wishes run out after %d days."]:format(ns.db.wishDays or 14) end
+  p.Layout = function(self, w, h, mode)
+    self._w, self._h, self._mode = w, h, mode
+    local narrow = mode ~= "full"
+    local side = narrow and 0 or DETAIL_W + S.pad
+    local lw = w - 2 * S.pad - side
+    local y = S.gap
+    -- right: "New wish", the count, the state; the chips get what is left
+    local nw = math.min(self.new.natural or 100, 140)
+    self.new:Layout(nw)
+    self.new:ClearAllPoints()
+    self.new:SetPoint("TOPRIGHT", self, "TOPLEFT", S.pad + lw, -y)
+    local cw = math.min(Kit.TextWidth(self.count), 90)
     self.count:ClearAllPoints()
-    self.count:SetPoint("TOPLEFT", self, "TOPLEFT", w - 160, -6)
-    self.list:SetWidth(LIST_W + dw)
-    self.empty:SetWidth(LIST_W + dw)
-    self.detail:ClearAllPoints()
-    self.detail:SetPoint("TOPLEFT", self, "TOPLEFT", DETAIL_X + dw, -TOP)
+    self.count:SetPoint("TOPRIGHT", self, "TOPLEFT", S.pad + lw - nw - S.gap, -y - 7)
+    Kit.Fit(self.count, 90)
+    local dw = math.max(90, math.min(140, math.floor(lw * 0.2)))
+    local dx = S.pad + lw - nw - S.gap - cw - S.gap - dw
+    self.state:ClearAllPoints()
+    self.state:SetPoint("TOPLEFT", self, "TOPLEFT", dx, -y)
+    self.state:Layout(dw)
+    self.chips:ClearAllPoints()
+    self.chips:SetPoint("TOPLEFT", self, "TOPLEFT", S.pad, -y - 2)
+    self.chips:Layout(math.max(40, dx - S.gap - S.pad))
+    y = y + S.button + S.gap
+    self.list:ClearAllPoints()
+    self.list:SetPoint("TOPLEFT", self, "TOPLEFT", S.pad, -y)
+    self.list:Resize(lw, math.max(40, h - y - S.gap))
+    -- the card: a column of its own from 960 px, else over the list when a wish is picked
+    local e = self.selected and ns.Wish(self.selected)
+    local show = not narrow or (e and self.overlay) and true or false
+    self.detail:SetShown(show)
+    if show then
+      local cwid = narrow and math.min(DETAIL_W, w - 2 * S.pad) or DETAIL_W
+      self.detail:ClearAllPoints()
+      self.detail:SetPoint("TOPRIGHT", self, "TOPRIGHT", -S.pad, -S.gap)
+      self.detail:Layout(cwid, h - 2 * S.gap)
+      if narrow then pcall(self.detail.SetFrameLevel, self.detail, (self.list:GetFrameLevel() or 1) + 20) end
+      if e then
+        if narrow then self.detail.close:Show() else self.detail.close:Hide() end
+        FillDetail(self.detail, e)
+      else
+        Placeholder(self.detail)
+      end
+    end
   end
   p.Refresh = function() Refresh() end
 end

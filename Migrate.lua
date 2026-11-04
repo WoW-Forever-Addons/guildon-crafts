@@ -4,7 +4,7 @@ local L = ns.L
 ---------------------------------------------------------------------------
 -- (31.10.2026, C4, DONCORE_PLAN.md "Craftdon aus Guildon lösen", "Übergang") Guildon Crafts takes over what Guildon 0.8 kept in
 -- GuildonDB: professions, recipes seen, wishes and orders, prices, cooldowns, "wanted", thanks, the book and list choices,
--- the craft options and the window's place. Guildon depends on Guildon Crafts and loads after it, so GuildonDB is only there at
+-- the craft options. Guildon depends on Guildon Crafts and loads after it, so GuildonDB is only there at
 -- PLAYER_LOGIN. Once done (GuildonCraftsDB.tookGuildon), never again. Only what Guildon Crafts does not have yet is taken: a key that
 -- is missing or an empty table, a set Guildon Crafts lacks or holds older. GuildonDB itself stays as it is (Guildon clears these
 -- keys in a later version), so nothing is lost if someone switches Guildon Crafts off again.
@@ -31,9 +31,7 @@ ns.TAKE_KEYS = { "prof", "learned", "found", "chars", "wishes", "jobs", "mods", 
   "bookFilter", "bookFold", "bookOpen", "bookProf", "bookSpell", "bookType" }
 -- keys Guildon Crafts fills with a default before PLAYER_LOGIN (Wishes.lua DB() at OnInit): still the default counts as not set
 ns.TAKE_DEFAULTS = { wishDays = 14 }
--- the window's place and look, only when Guildon Crafts's window was never moved (not the minimap angle: Guildon keeps its own button
--- there, Guildon Crafts's sits at 230 degrees beside it)
-ns.TAKE_WINDOW = { "panelWidth", "panelHeight", "panelScale", "panelAlpha", "panelLocked", "combatFade" }
+-- (02.11.2026, StyleKit 2 step 4) the old window's place and look are no longer taken: the Don window keeps its own (db.window)
 
 local function Copy(v, depth)
   if type(v) ~= "table" then return v end
@@ -52,15 +50,6 @@ function ns.TakeOverGuildon(db, gdb)
   for _, k in ipairs(ns.TAKE_KEYS) do
     local unset = Empty(db[k]) or (ns.TAKE_DEFAULTS[k] ~= nil and db[k] == ns.TAKE_DEFAULTS[k])
     if unset and not Empty(gdb[k]) and db[k] ~= gdb[k] then db[k] = Copy(gdb[k]) keys = keys + 1 end
-  end
-  local moved = type(db.panel) == "table" and db.panel.pos ~= nil
-  if not moved and type(gdb.panel) == "table" and type(gdb.panel.pos) == "table" then
-    db.panel = type(db.panel) == "table" and db.panel or {}
-    db.panel.pos = Copy(gdb.panel.pos)
-    keys = keys + 1
-    for _, k in ipairs(ns.TAKE_WINDOW) do
-      if gdb[k] ~= nil then db[k] = Copy(gdb[k]) keys = keys + 1 end
-    end
   end
   db.sets = type(db.sets) == "table" and db.sets or {}
   if type(gdb.sets) == "table" then

@@ -1,22 +1,21 @@
 local _, ns = ...
 local L = ns.L
-local Style = ns.Style
-local C = Style.COLORS
+local Kit = ns.Kit
 
 ---------------------------------------------------------------------------
--- Tabs "Professions" and "Recipe book" (GUILDON_PLAN.md step 2, "Bedienung").
--- Professions: every profession with who in the guild has it (skill, online); click a profession opens the
--- recipe book on it, click a member opens a whisper.
--- Recipe book: profession buttons, search, filter (all / someone can / nobody can / I can / online now),
--- skill from and to, recipes grouped by category (fold by click), marker who can craft, detail on the right
--- with result, reagents (own count in bags and bank), crafters with online state and a whisper button.
+-- Tabs "Professions" and "Recipes" (GUILDON_PLAN.md step 2, "Bedienung"; Don style 02.11.2026, mockup
+-- docs/layout_2026-11-02/guildon/ parts 4, 4b and 5).
+-- Professions: the professions in a sidebar (cooldowns on top), the chosen one as a hero with who in the guild has it:
+-- column heads, a skill bar in the cell, online first; a click on a member opens a whisper.
+-- Recipes: the professions in the same sidebar, type, search, wearable level and the filter chips (all / someone can /
+-- nobody can / I can / online now) on top, recipes grouped by type (fold by click), the picked recipe in a card on the
+-- right (reagents with what the player has, who wants it, who can craft it, wish / want / whisper). The sidebar is always
+-- the icon rail (Daniel 02.11.2026: "das so schmal lassen und das fenster was sich öffnet nach einem klick rechts daneben
+-- machen"); the card goes over the list only when the list would keep less than LIST_MIN beside it.
 ---------------------------------------------------------------------------
-local UI = ns.UI
-local PAGE_W, CONTENT_H = ns.PAGE_W, ns.CONTENT_H
-local LIST_W = 320
-local DETAIL_X = LIST_W + 12
-local DETAIL_W = PAGE_W - DETAIL_X
-local TOP = 58
+local S = Kit.SIZE
+local DETAIL_W = 320
+local LIST_MIN = 360
 
 ns.BOOK_FILTERS = { "all", "someone", "nobody", "mine", "online" }
 local FILTER_TEXT = { all = "All recipes", someone = "Someone can", nobody = "Nobody can", mine = "I can", online = "Online now" }
@@ -31,7 +30,15 @@ local function ClassOf(owner)
   return info and info.classFile or ""
 end
 local function Colored(owner) return "|c" .. Hex(ClassOf(owner)) .. ns.ShortName(owner) .. "|r" end
-local function Icon(tex, size) return ("|T%s:%d:%d|t"):format(tostring(tex), size or 16, size or 16) end
+
+-- (02.11.2026, Daniel: "item tooltip wenn man drüber hovert", "rarity farben von wow hinterlegen", "entweder schrift, oder
+-- symbol") the made item of a recipe: its id for the game's tooltip and its quality for the colour of the name (the text only)
+function ns.RecipeItemQuality(info)
+  local id = info and tonumber(info.item)
+  if not id or id <= 0 then return nil, nil end
+  local _, _, q = ns.Kit.ItemData(id)
+  return id, q
+end
 
 local function ItemText(id)
   local name = ns.ItemName(id)
@@ -125,39 +132,27 @@ function ns.RecipeType(info)
   return key, label, order
 end
 
+
 ---------------------------------------------------------------------------
--- Professions tab
+-- The profession sidebar (both tabs): a row per profession with "online / in the guild", the ones nobody has dimmed;
+-- (Kit minor 4) each with its symbol; in the icon rail (under 800 px) only the symbol
 ---------------------------------------------------------------------------
--- Master and detail (Daniel 26.10., Gemini draft): the professions in a column on the left (online / in the guild), on the
--- right the best crafters of the chosen one with a skill bar, online first. A big guild shows the first TOP_CRAFTERS and
--- the rest opens with a click on the last line (ns.db.profOpen).
-local TOP_CRAFTERS = 10
-local PROF_W = 224
-local PD_X = PROF_W + 12
-local PD_W = PAGE_W - PD_X
-local PD_TOP = 36
-local PAL = Style.PAL
+local function Short(text)
+  local s = tostring(text or "")
+  -- the first two letters (UTF-8: a letter can take several bytes)
+  local out, n = "", 0
+  for ch in s:gmatch("[%z\1-\127\194-\244][\128-\191]*") do
+    if ch ~= " " then out = out .. ch n = n + 1 end
+    if n >= 2 then break end
+  end
+  return out
+end
 
 local function ClassName(owner)
   local m = ns.Member(owner)
   if m and m.class and m.class ~= "" then return m.class end
   local file = ClassOf(owner)
   return (LOCALIZED_CLASS_NAMES_MALE and LOCALIZED_CLASS_NAMES_MALE[file]) or ""
-end
-
-local function CooldownEntries()
-  local out = {}
-  local now = time()
-  for _, c in ipairs(ns.GuildCooldowns and ns.GuildCooldowns() or {}) do
-    local left = (c.ready or 0) - now
-    local on = ns.IsOnline(c.owner)
-    out[#out + 1] = { key = "cd:" .. c.cd.key .. ":" .. c.owner, owner = c.owner,
-      text = UI.Dot(on) .. " " .. Colored(c.owner),
-      cols = { "|c" .. Style.Hex("textSecondary") .. L[c.cd.label] .. "|r" },
-      value = left <= 0 and ("|c" .. Style.Hex("good") .. L["ready"] .. "|r") or L["in %s"]:format(left >= 86400 and
-        L["%d days"]:format(math.ceil(left / 86400)) or L["%d h"]:format(math.ceil(left / 3600))) }
-  end
-  return out
 end
 
 -- every profession with its crafters (online first, then skill, then name): most members first, the empty ones last
@@ -186,105 +181,166 @@ local function ProfessionData()
   for _, r in ipairs(empty) do recs[#recs + 1] = r end
   return recs, byId
 end
+ns.ProfessionData = ProfessionData
 
-local function ProfessionRows(recs, cds)
+-- the sidebar's items: cooldowns on top (professions tab), a head, one row per profession (craftOnly: the recipe tab)
+local function SideItems(recs, cds, craftOnly, rail)
   local out = {}
-  if #cds > 0 then
-    out[#out + 1] = { key = "cd", sel = "cd", text = Icon("Interface\\Icons\\INV_Misc_PocketWatch_01", 18) .. "  " .. L["Cooldowns"],
-      value = tostring(#cds), tooltip = function() return L["Cooldowns"], { L["Transmute, Mooncloth and Salt Shaker of the members with Guildon Crafts."] } end }
+  if cds and #cds > 0 then
+    out[#out + 1] = { key = "cd", sel = "cd", text = L["Cooldowns"], count = #cds, short = Short(L["Cooldowns"]),
+      icon = "Interface\\Icons\\INV_Misc_PocketWatch_01",
+      tooltipFn = function() return L["Cooldowns"], { L["Transmute, Mooncloth and Salt Shaker of the members with Guildon Crafts."] } end }
   end
+  if not rail then out[#out + 1] = { kind = "group", key = "h:profs", static = true, text = L["Professions"] } end
   for _, r in ipairs(recs) do
-    local has = #r.list > 0
-    out[#out + 1] = { key = "p:" .. r.p.id, sel = r.p.id,
-      text = Icon(ns.ProfIcon(r.p.id), 18) .. "  " .. ns.ProfName(r.p.id), color = has and "textPrimary" or "textHint",
-      value = ("%d / %d"):format(r.online, #r.list), valueColor = has and "textSecondary" or "textHint" }
+    if not craftOnly or r.p.craft then
+      local has = #r.list > 0
+      out[#out + 1] = { key = "p:" .. r.p.id, sel = r.p.id, prof = r.p.id, text = ns.ProfName(r.p.id), short = Short(ns.ProfName(r.p.id)),
+        icon = ns.ProfIcon(r.p.id),
+        count = ("%d / %d"):format(r.online, #r.list), quiet = not has, status = r.online > 0 and "green" or nil,
+        tooltipFn = function() return ns.ProfName(r.p.id), { L["%d in the guild, %d online"]:format(#r.list, r.online) } end }
+    end
   end
   return out
 end
 
-local function CrafterRows(rec)
+local function SelectSide(side, sel)
+  for _, it in ipairs(side.list.items or {}) do
+    if it.sel ~= nil and it.sel == sel then side.list:Select(it) return it end
+  end
+  side.list:Select(nil)
+end
+
+---------------------------------------------------------------------------
+-- Professions tab
+---------------------------------------------------------------------------
+-- Master and detail (Daniel 26.10., Gemini draft; mockup 02.11.2026 part 5): the professions in the sidebar, on the right
+-- the best crafters of the chosen one with a skill bar, online first. A big guild shows the first TOP_CRAFTERS and the
+-- rest opens with a click on the last line (ns.db.profOpen).
+local TOP_CRAFTERS = 10
+local HERO_H = 56
+
+local function CooldownItems()
+  local out = {}
+  local now = time()
+  for _, c in ipairs(ns.GuildCooldowns and ns.GuildCooldowns() or {}) do
+    local left = (c.ready or 0) - now
+    local on = ns.IsOnline(c.owner)
+    out[#out + 1] = { kind = "table", key = "cd:" .. c.cd.key .. ":" .. c.owner, owner = c.owner, class = ClassOf(c.owner),
+      status = on and "green" or nil, dim = not on,
+      cells = { Colored(c.owner), { text = L[c.cd.label], color = Kit.C.muted },
+        left <= 0 and { text = L["ready"], color = Kit.C.green } or { text = L["in %s"]:format(left >= 86400 and
+          L["%d days"]:format(math.ceil(left / 86400)) or L["%d h"]:format(math.ceil(left / 3600))), color = Kit.C.title } } }
+  end
+  return out
+end
+
+local function CrafterItems(rec, narrow)
   local p, list, me = rec.p, rec.list, ns.MyName()
   local out = {}
   local open = ns.db.profOpen and ns.db.profOpen[p.id]
   local cut = #list > TOP_CRAFTERS and not open
   for i, e in ipairs(list) do
     if not (cut and i > TOP_CRAFTERS) then
+      local unread = p.craft and not p.gather and e.n == 0
       local hint
-      if p.craft and not p.gather and e.n == 0 then
+      if unread then
         hint = e.owner == me and L["Open your profession window once so that Guildon Crafts can read your recipes."]
           or L["Recipes not read yet."]
       end
       local full = (e.max or 0) > 0 and (e.rank or 0) >= e.max
-      out[#out + 1] = { key = "m:" .. p.id .. ":" .. e.owner, owner = e.owner, prof = p.id,
-        text = UI.Dot(e.on) .. " " .. Colored(e.owner) .. (e.on and "" or ("  |c" .. Style.Hex("textHint") .. L["offline"] .. "|r")),
-        cols = { "|c" .. ns.ClassHex(ClassOf(e.owner)) .. ClassName(e.owner) .. "|r" },
-        value = ("%d / %d"):format(e.rank or 0, e.max or 0) .. ((p.craft and not p.gather and e.n == 0) and " *" or ""),
-        meter = { e.rank or 0, e.max or 0, full and C.good or nil },
-        tooltip = function()
+      local cells = { Colored(e.owner) .. (unread and " *" or "") }
+      if not narrow then cells[#cells + 1] = { text = ClassName(e.owner), color = Kit.C.muted } end
+      cells[#cells + 1] = { bar = (e.max or 0) > 0 and (e.rank or 0) / e.max or 0, text = ("%d/%d"):format(e.rank or 0, e.max or 0),
+        color = full and Kit.C.green or Kit.C.title, barColor = full and "green" or nil }
+      cells[#cells + 1] = e.on and { text = L["online"], color = Kit.C.green } or { text = L["offline"], color = Kit.C.quiet }
+      out[#out + 1] = { kind = "table", key = "m:" .. p.id .. ":" .. e.owner, owner = e.owner, prof = p.id, class = ClassOf(e.owner),
+        status = e.on and "green" or nil, dim = not e.on, cells = cells,
+        tooltipFn = function()
           local lines = { L["Skill %d of %d"]:format(e.rank or 0, e.max or 0) }
           if p.craft then lines[#lines + 1] = L["Recipes: %d"]:format(e.n) end
-          lines[#lines + 1] = L["Data from %s"]:format(UI.AgeText(e.t))
+          lines[#lines + 1] = L["Data from %s"]:format(ns.UI.AgeText(e.t))
           if hint then lines[#lines + 1] = hint end
           return ns.ShortName(e.owner), lines, e.owner ~= me and L["Click: whisper"] or nil
         end }
     end
   end
   if #list > TOP_CRAFTERS then
-    out[#out + 1] = { key = "more:" .. p.id, more = p.id, color = "textSecondary", topLine = true,
+    out[#out + 1] = { kind = "group", key = "more:" .. p.id, more = p.id, collapsed = not open, plainCase = true,
       text = open and L["Show only the first %d, click"]:format(TOP_CRAFTERS) or L["%d more, click to show"]:format(#list - TOP_CRAFTERS) }
-  end
-  if #list == 0 then
-    out[#out + 1] = { key = "none", color = "textHint", text = L["Nobody in the guild yet"] }
   end
   return out
 end
 
 ns.PAGE_BUILDERS.professions = function(p)
-  p.left = ns.NewList(p, { x = 0, y = 0, width = PROF_W, height = CONTENT_H, rowHeight = 26,
-    onSelect = function(e)
-      if e.sel then ns.db.profSel = e.sel p:Refresh() end
-    end })
-  p.box = UI.Box(p, PAL.edge, PAL.well)
-  p.box:SetSize(PD_W, CONTENT_H)
-  p.box:SetPoint("TOPLEFT", p, "TOPLEFT", PD_X, 0)
-  p.title = UI.Text(p.box, "GameFontNormalLarge", 10, -8, PD_W - 330, "gold")
-  p.stats = UI.Text(p.box, "GameFontHighlightSmall", PD_W - 8 - 100 - 8 - 190, -12, 190, "textSecondary")
-  p.stats:SetJustifyH("RIGHT")
-  p.recipes = UI.FlatButton(p.box, 100, 20, L["Recipes"])
-  p.recipes:SetPoint("TOPLEFT", p.box, "TOPLEFT", PD_W - 8 - 100, -7)
-  p.recipes:SetTip(L["Recipes"], nil, L["Click: open the recipes of this profession."])
-  p.recipes:SetScript("OnClick", ns.Guard("professions recipes", function()
+  p.side = Kit.Sidebar(p, { onClick = function(e)
+    if e.sel ~= nil then ns.db.profSel = e.sel p:Refresh() end
+  end })
+  p.side.rail = true
+  p.hero = Kit.Hero(p, { height = HERO_H })
+  p.recipes = Kit.Button(p, L["Recipes"], { kind = "primary", onClick = function()
     local sel = ns.db.profSel
     if type(sel) == "number" and ns.PROF_BY_ID[sel] and ns.PROF_BY_ID[sel].craft then ns.OpenRecipes(sel) end
-  end))
-  p.list = ns.NewList(p, { x = PD_X + 4, y = -PD_TOP, width = PD_W - 8, height = CONTENT_H - PD_TOP - 4, rowHeight = ns.ROW_H,
-    columns = { { 176, 90, "LEFT" } }, textRight = 168, meterWidth = 170, growText = true,
-    onSelect = function(e)
+  end })
+  p.recipes:SetTooltip(L["Recipes"], nil, L["Click: open the recipes of this profession."])
+  local function Head(narrow)
+    local cols = { { key = "name", text = L["Name"], width = 110, grow = true } }
+    if not narrow then cols[#cols + 1] = { key = "class", text = L["Class"], width = 96 } end
+    cols[#cols + 1] = { key = "skill", text = L["Skill"], width = narrow and 130 or 170 }
+    cols[#cols + 1] = { key = "state", text = L["State"], width = 64, justify = "RIGHT" }
+    return Kit.TableHead(p, { icon = true, columns = cols })
+  end
+  p.headWide, p.headNarrow = Head(false), Head(true)
+  p.headCd = Kit.TableHead(p, { icon = true, columns = { { key = "name", text = L["Name"], width = 110, grow = true },
+    { key = "cd", text = L["Cooldown"], width = 150 }, { key = "ready", text = L["Ready"], width = 90, justify = "RIGHT" } } })
+  p.list = Kit.List(p, {
+    onToggle = function(e)
       if e.more then
         ns.db.profOpen = type(ns.db.profOpen) == "table" and ns.db.profOpen or {}
-        ns.db.profOpen[e.more] = not ns.db.profOpen[e.more] or nil
-        p:Refresh()
-      elseif e.owner then
-        if e.owner ~= ns.MyName() then ns.WhisperCrafter(e.owner) end
+        ns.db.profOpen[e.more] = not e.collapsed or nil
       end
-    end })
-  p.OnResize = function(self, h)
-    self.left:SetHeight(h)
-    self.box:SetHeight(h)
-    self.list:SetHeight(h - PD_TOP - 4)
+      p:Refresh()
+    end,
+    onClick = function(e)
+      if e.owner and e.owner ~= ns.MyName() then ns.WhisperCrafter(e.owner) end
+    end,
+  })
+  p.Hint = function() return L["Click: whisper"] .. "   " .. L["* = recipes not read yet"] end
+  p.Head = function(self)
+    if ns.db.profSel == "cd" then return self.headCd end
+    return self._mode == "full" and self.headWide or self.headNarrow
   end
-  -- wider window: the crafter box takes the extra width, the profession list at the left stays
-  p.OnWidth = function(self, w)
-    local pw = PD_W + (w - PAGE_W)
-    self.box:SetWidth(pw)
-    self.title:SetWidth(pw - 330)
-    self.stats:ClearAllPoints()
-    self.stats:SetPoint("TOPLEFT", self.box, "TOPLEFT", pw - 8 - 100 - 8 - 190, -12)
+  p.Layout = function(self, w, h, mode)
+    self._w, self._h, self._mode = w, h, mode
+    self.side:ClearAllPoints()
+    self.side:SetPoint("TOPLEFT", self, "TOPLEFT", 0, 0)
+    self.side:Layout(h, true)
+    -- another mode: the sidebar's items (no head in the rail) and the columns change, so the page fills again
+    if self._lastMode ~= mode then self._lastMode = mode if self._built then self:Refresh() return end end
+    local x0 = self.side:Width() + S.pad
+    local lw = w - x0 - S.pad
+    local y = S.gap
+    local bw = self.recipes:IsShown() and math.min(self.recipes.natural or 100, 140) or 0
     self.recipes:ClearAllPoints()
-    self.recipes:SetPoint("TOPLEFT", self.box, "TOPLEFT", pw - 8 - 100, -7)
-    self.list:SetWidth(pw - 8)
+    self.recipes:SetPoint("TOPRIGHT", self, "TOPLEFT", x0 + lw, -y - math.floor((HERO_H - S.button) / 2))
+    if bw > 0 then self.recipes:Layout(bw) end
+    self.hero:ClearAllPoints()
+    self.hero:SetPoint("TOPLEFT", self, "TOPLEFT", x0, -y)
+    self.hero:Layout(lw - (bw > 0 and bw + S.gap or 0))
+    y = y + HERO_H + S.gap
+    local head = self:Head()
+    for _, hd in ipairs({ self.headWide, self.headNarrow, self.headCd }) do hd:SetShown(hd == head) end
+    head:ClearAllPoints()
+    head:SetPoint("TOPLEFT", self, "TOPLEFT", x0, -y)
+    head:Bind(self.list)
+    head:Layout(lw)
+    y = y + S.chip
+    self.list:ClearAllPoints()
+    self.list:SetPoint("TOPLEFT", self, "TOPLEFT", x0, -y)
+    self.list:Resize(lw, math.max(40, h - y - S.gap))
   end
   p.Refresh = function(self)
+    self._built = true
     local recs, byId = ProfessionData()
     local cds = ns.GuildCooldowns and ns.GuildCooldowns() or {}
     local sel = ns.db.profSel
@@ -294,25 +350,32 @@ ns.PAGE_BUILDERS.professions = function(p)
       sel = sel or (recs[1] and recs[1].p.id)
       ns.db.profSel = sel
     end
-    self.left:SetData(ProfessionRows(recs, cds))
-    self.left:SetSelected(sel == "cd" and "cd" or ("p:" .. tostring(sel)))
+    self.side.list:SetItems(SideItems(recs, cds, false, self.side.rail))
+    SelectSide(self.side, sel)
+    local narrow = self._mode ~= nil and self._mode ~= "full"
     if sel == "cd" then
-      self.title:SetText(L["Cooldowns"])
-      self.stats:SetText("")
+      local ready = 0
+      for _, c in ipairs(cds) do if (c.ready or 0) <= time() then ready = ready + 1 end end
+      self.hero:SetData({ kicker = L["Your guild"], title = L["Cooldowns"], value = tostring(#cds), label = L["ready"] .. ": " .. ready })
+      self.hero._tipFn = function() return L["Cooldowns"], { L["Transmute, Mooncloth and Salt Shaker of the members with Guildon Crafts."] } end
       self.recipes:Hide()
-      self.list:SetData(CooldownEntries())
+      self.list:SetItems(CooldownItems())
+      self.list:SetEmpty("")
     else
       local rec = byId[sel]
-      self.title:SetText(rec and ns.ProfName(rec.p.id) or "")
-      self.stats:SetText(rec and L["%d in the guild, %d online"]:format(#rec.list, rec.online) or "")
+      self.hero:SetData({ kicker = L["Profession"], title = rec and ns.ProfName(rec.p.id) or "", value = rec and tostring(#rec.list) or "",
+        label = rec and L["online: %d"]:format(rec.online) or "", progress = rec and #rec.list > 0 and rec.online / #rec.list or nil })
+      self.hero._tipFn = rec and function() return ns.ProfName(rec.p.id), { L["%d in the guild, %d online"]:format(#rec.list, rec.online) } end or nil
       self.recipes:SetShown(rec and rec.p.craft and true or false)
-      self.list:SetData(rec and CrafterRows(rec) or {})
+      self.list:SetItems(rec and CrafterItems(rec, narrow) or {})
+      self.list:SetEmpty(L["Nobody in the guild yet"])
     end
+    if self._w then self:Layout(self._w, self._h, self._mode) end
   end
 end
 
 ---------------------------------------------------------------------------
--- Recipe book
+-- Recipes
 ---------------------------------------------------------------------------
 local book -- the page
 
@@ -377,22 +440,26 @@ local function Passes(db, spell, info, crafters, search, from, to)
   return true
 end
 
--- marker: one tick everywhere (Daniel 26.10.): green when a crafter is online, grey when only offline crafters know it;
--- a number in front for several
+-- marker (Daniel 26.10.): a tick, green when a crafter is online, grey when only offline crafters know it, and how many
+local TICK = "|TInterface\\Buttons\\UI-CheckBox-Check:14:14:0:0:32:32:0:32:0:32:%d:%d:%d|t"
 local function Marker(crafters)
-  if #crafters == 0 then return "" end
+  if #crafters == 0 then return { text = "", color = Kit.C.quiet } end
   local online = false
   for _, o in ipairs(crafters) do if ns.IsOnline(o) then online = true break end end
-  local mark = UI.Tick(14, online and "good" or "dim")
-  if #crafters > 1 then mark = ("|c%s%d|r "):format(Style.Hex(online and "good" or "textSecondary"), #crafters) .. mark end
-  return mark
+  local c = online and Kit.C.green or Kit.C.grey
+  local tick = TICK:format(math.floor(c[1] * 255), math.floor(c[2] * 255), math.floor(c[3] * 255))
+  return { text = (#crafters > 1 and (#crafters .. " ") or "") .. tick, color = online and Kit.C.green or Kit.C.muted }
 end
 
+local function Trim(t) return (tostring(t or ""):lower():gsub("^%s+", ""):gsub("%s+$", "")) end
+
+-- the list items: a group per type (folded unless opened, searching or filtering), a table row per recipe (symbol, name,
+-- skill, marker); returns items, all recipes of the profession, shown ones
 function ns.BookEntries()
   local db = BookState()
-  local search = book and book.search and tostring(book.search:GetText() or ""):lower():gsub("^%s+", ""):gsub("%s+$", "") or ""
-  local from = book and book.from and tonumber(book.from:GetText() or "")
-  local to = book and book.to and tonumber(book.to:GetText() or "")
+  local search = book and book.search and Trim(book.search:GetText()) or ""
+  local from = book and book.from and book.from:GetValue() or nil
+  local to = book and book.to and book.to:GetValue() or nil
   local groups, order, labels, rank = {}, {}, {}, {}
   local types, typeSeen = {}, {}
   local total, shown = 0, 0
@@ -434,432 +501,296 @@ function ns.BookEntries()
     local foldKey = db.bookProf .. ":" .. cat
     local folded
     if auto then folded = autoClosed[foldKey] == true else folded = not db.bookOpen[foldKey] end
-    out[#out + 1] = { key = "c:" .. cat, fold = foldKey, auto = auto, topLine = #out > 0, color = "textSecondary",
-      text = (folded and "+ " or "- ") .. cat, value = tostring(#g), valueColor = "textHint" }
+    out[#out + 1] = { kind = "group", key = "c:" .. cat, fold = foldKey, auto = auto, plainCase = true, text = cat, count = #g,
+      collapsed = folded }
     if not folded then
       for _, r in ipairs(g) do
-        local skill = (r.info.skill or 0) > 0 and ("  |c%s%d|r"):format(Style.Hex("textHint"), r.info.skill) or ""
-        out[#out + 1] = { key = r.spell, spell = r.spell, text = Icon(ns.RecipeIcon(r.spell, r.info), 14) .. " " .. r.name .. skill,
-          value = Marker(r.crafters),
-          color = #r.crafters > 0 and "textPrimary" or "textHint" }
+        local can = #r.crafters > 0
+        local spell, info, crafters = r.spell, r.info, r.crafters
+        local itemID, quality = ns.RecipeItemQuality(info)
+        local lines = { ns.ProfName(info.prof or db.bookProf) .. ((info.skill or 0) > 0 and ("  " .. L["from skill %d"]:format(info.skill)) or "") }
+        lines[#lines + 1] = #crafters > 0 and L["Crafters: %s"]:format(#crafters) or L["Nobody in the guild knows this recipe yet."]
+        -- a recipe that makes an item: the game's item tooltip with the guild's lines below, the name in its quality colour
+        out[#out + 1] = { kind = "table", key = spell, spell = spell, icon = ns.RecipeIcon(spell, info), dim = not can,
+          itemID = itemID, quality = quality, tipLines = lines, tipHint = L["Shift-click: link in the chat"],
+          cells = { { text = r.name, color = can and Kit.C.title or Kit.C.quiet },
+            { text = (info.skill or 0) > 0 and tostring(info.skill) or "", color = Kit.C.quiet }, Marker(crafters) },
+          tooltipFn = not itemID and function() return r.name, lines, L["Shift-click: link in the chat"] end or nil }
       end
     end
   end
   return out, total, shown
 end
 
--- detail on the right
--- the detail on the right is one stack from the top (layout review 25.10.): title, source, result when it says more
--- than the title, reagents with icons and have/need, a thin line, the crafters as far as there is room, buttons at the bottom
-local DETAIL_H = CONTENT_H - TOP
-local BUTTONS_H = 40
-
-local function Place(region, y, h)
-  region:ClearAllPoints()
-  region:SetPoint("TOPLEFT", book.detail, "TOPLEFT", 8, y)
-  return y - (h or 16)
+-- the card on the right: what the recipe makes, where it comes from, who wants it, the reagents with what the player has,
+-- who in the guild can craft it; actions wish, want, whisper
+local function CrafterFor(spell)
+  local crafters, me = ns.CraftersOf(spell), ns.MyName()
+  for _, o in ipairs(crafters) do if o ~= me and ns.IsOnline(o) then return o end end
+  for _, o in ipairs(crafters) do if o ~= me then return o end end
 end
 
-local function ShowDetail(spell)
-  local d = book.detail
-  book.selected = spell
-  ns.db.bookSpell = spell
-  for _, r in ipairs(d.rows) do r:Hide() end
-  for _, b in ipairs(d.crafters) do b:Hide() end
-  if not spell then
-    d.icon:Hide()
-    d.title:SetText("")
-    d.sub:SetText(L["Choose a recipe on the left."])
-    for _, f in ipairs({ d.src, d.makes, d.rhead, d.line, d.head, d.more, d.whisper, d.wish }) do f:Hide() end
-    return
-  end
+local function FillBookDetail(d, spell)
   local info = ns.RecipeInfo(spell)
   local prof = info.prof or ns.db.bookProf
   local title = RecipeName(spell)
-  d.icon:Show()
-  d.icon.tex:SetTexture(ns.RecipeIcon(spell, info))
-  d.icon.spell, d.icon.item = spell, info.item
-  d.title:SetText(title)
-  -- recipe wanted (Durchgang 5 Nr. 3): a toggle for recipes the player cannot craft yet
+  local meta = ns.ProfName(prof)
+  if (info.skill or 0) > 0 then meta = meta .. "  " .. L["from skill %d"]:format(info.skill) end
+  local itemID, quality = ns.RecipeItemQuality(info)
+  d:SetHead({ icon = ns.RecipeIcon(spell, info), title = title, meta = meta, itemID = itemID,
+    titleColor = quality and Kit.QualityColor(quality) or nil })
+  -- recipe wanted (Durchgang 5 Nr. 3): for recipes the player cannot craft yet
   local mineCan = false
   for _, o in ipairs(ns.CraftIndex().crafters[spell] or {}) do if o == ns.MyName() then mineCan = true end end
-  d.want:SetShown(not mineCan and ns.SetWanted ~= nil)
-  d.want.spell = spell
-  d.want:Sync()
-  local sub = ns.ProfName(prof)
-  if (info.skill or 0) > 0 then sub = sub .. "  " .. L["from skill %d"]:format(info.skill) end
-  d.sub:SetText(sub)
-  local y = -52
+  local crafter = CrafterFor(spell)
+  book.crafter = crafter
+  local acts = { { text = L["Wish"], kind = "primary", onClick = function() if ns.ShowWishForm then ns.ShowWishForm(spell) end end,
+    tooltip = { L["Wish"], { L["Ask the guild for this recipe: crafters see your wish in their wish list."] } } } }
+  if not mineCan and ns.SetWanted then
+    local on = ns.IsWanted(spell)
+    -- (Kit minor 4) a switch: selected while the recipe is wanted
+    acts[#acts + 1] = { text = L["Want"], selected = on, onClick = function()
+      ns.SetWanted(spell, not ns.IsWanted(spell))
+      if book and book:IsShown() then book:Refresh() end
+    end, tooltip = { L["Want"], { L["Tell the guild you want to learn this recipe. Recipe items then name you in their tooltip."] } } }
+  end
+  if crafter then
+    acts[#acts + 1] = { text = L["Whisper %s"]:format(ns.ShortName(crafter)), onClick = function() ns.WhisperCrafter(crafter, spell) end }
+  end
+  d:SetActions(acts)
+  d:Begin()
+  local made = info.item and info.item > 0 and ItemText(info.item)
+  if made and (made ~= title or (info.count or 1) > 1) then
+    d:Line(L["Makes: %s"]:format(made .. ((info.count or 1) > 1 and (" x" .. info.count) or "")), Kit.C.title)
+  end
   if info.src then
     local src = L[SRC_TEXT[info.src] or "Other"]
     if info.recipeItem and info.recipeItem > 0 then src = src .. ": " .. ItemText(info.recipeItem) end
-    d.src:SetText(L["Source: %s"]:format(src))
-    d.src:Show()
-    y = Place(d.src, y, 16)
-  else
-    d.src:Hide()
+    d:Para(L["Source: %s"]:format(src), Kit.C.muted)
   end
-  -- who wants it, and who could learn it when nobody knows it
+  -- who wants it
   local wanted = ns.WantedBy and ns.WantedBy(spell) or {}
   if #wanted > 0 then
     local names = {}
-    for i = 1, math.min(#wanted, 4) do names[i] = ns.ShortName(wanted[i]) end
-    d.wanted:SetText(L["Wanted by %s"]:format(table.concat(names, ", ")) .. (#wanted > 4 and (" " .. L["and %d more"]:format(#wanted - 4)) or ""))
-    d.wanted:Show()
-    y = Place(d.wanted, y, 16)
+    for i = 1, math.min(#wanted, 4) do names[i] = Colored(wanted[i]) end
+    d.wantedText = L["Wanted by %s"]:format(table.concat(names, ", ")) .. (#wanted > 4 and (" " .. L["and %d more"]:format(#wanted - 4)) or "")
+    d:Para(d.wantedText, Kit.C.yellow)
   else
-    d.wanted:Hide()
+    d.wantedText = nil
   end
-  -- "Makes" only when it says more than the title (another name or several pieces)
-  local made = info.item and info.item > 0 and ItemText(info.item)
-  if made and (made ~= title or (info.count or 1) > 1) then
-    d.makes:SetText(L["Makes: %s"]:format(made .. ((info.count or 1) > 1 and (" x" .. info.count) or "")))
-    d.makes:Show()
-    y = Place(d.makes, y, 16)
-  else
-    d.makes:Hide()
-  end
-  y = y - 6
-  d.rhead:Show()
-  y = Place(d.rhead, y, 18)
+  d:Section(L["Reagents"])
   if info.reagents and #info.reagents > 0 then
-    d.rhead:SetText(L["Reagents"])
-    for i, rg in ipairs(info.reagents) do
-      local r = d.rows[i]
-      if not r then break end
+    for _, rg in ipairs(info.reagents) do
       local have = ns.ItemCount(rg[1])
-      r.item = rg[1]
-      r.tex:SetTexture(ns.ItemIcon(rg[1]) or "Interface\\Icons\\INV_Misc_QuestionMark")
-      r.name:SetText(ItemText(rg[1]))
-      r.count:SetText(("%d/%d"):format(have, rg[2]))
-      UI.Color(r.count, have >= rg[2] and "good" or "critical")
-      UI.Color(r.name, have >= rg[2] and "textPrimary" or "critical")
-      r:Show()
-      y = Place(r, y, 18)
+      local ok = have >= rg[2]
+      local item = rg[1]
+      local _, ic = d:Item(item, ItemText(item), ok and Kit.C.body or Kit.C.red, ("%d/%d"):format(have, rg[2]), ok and Kit.C.green or Kit.C.red,
+        function() if ns.ShowWishForm then ns.ShowWishForm(nil, item) end end)
+      ic.extraTip = { L["Click: wish it from the guild's gatherers"] }
     end
   else
-    d.rhead:SetText(L["Reagents unknown until a crafter opens the window."])
+    d:Para(L["Reagents unknown until a crafter opens the window."], Kit.C.muted)
   end
-  y = y - 6
-  d.line:ClearAllPoints()
-  d.line:SetPoint("TOPLEFT", d, "TOPLEFT", 8, y)
-  d.line:SetPoint("TOPRIGHT", d, "TOPRIGHT", -8, y)
-  d.line:Show()
-  y = y - 8
-  d.head:Show()
-  y = Place(d.head, y, 18)
   local crafters = ns.CraftersOf(spell)
-  book.crafter = nil
-  -- as many crafter rows as fit above the buttons; the last one says how many more there are
-  local room = math.max(1, math.floor(((d:GetHeight() or DETAIL_H) - BUTTONS_H + y) / 20))
-  local shownN = math.min(#crafters, room, #d.crafters)
-  if #crafters > shownN then shownN = math.max(1, shownN - 1) end
-  for i = 1, shownN do
-    local o, b = crafters[i], d.crafters[i]
-    b.owner = o
+  d:Section(L["Who can craft it"], #crafters > 0 and tostring(#crafters) or nil)
+  local SHOW = 12
+  for i = 1, math.min(#crafters, SHOW) do
+    local o = crafters[i]
     local on = ns.IsOnline(o)
-    b.label:SetText(UI.Dot(on) .. " " .. Colored(o) .. "  |c" .. Style.Hex(on and "good" or "textHint") .. (on and L["online"] or L["offline"]) .. "|r")
-    b:Show()
-    y = Place(b, y, 20)
-    if not book.crafter and on and o ~= ns.MyName() then book.crafter = o end
+    -- a click whispers this crafter (with the recipe's link)
+    local mine = o == ns.MyName()
+    d:Line(Colored(o), nil, on and L["online"] or L["offline"], on and Kit.C.green or Kit.C.quiet, not mine and {
+      onClick = function() ns.WhisperCrafter(o, spell) end,
+      tooltip = { ns.ShortName(o), { on and L["online"] or L["offline"] }, L["Click: whisper"] } } or nil)
   end
-  if #crafters == 0 then
-    local b = d.crafters[1]
-    b.owner = nil
-    b.label:SetText("|c" .. Style.Hex("textHint") .. L["Nobody in the guild knows this recipe yet."] .. "|r")
-    b:Show()
-    y = Place(b, y, 20)
-  end
-  if #crafters > shownN then
-    d.more:SetText(L["and %d more"]:format(#crafters - shownN))
-    d.more:Show()
-    Place(d.more, y - 2, 16)
-  else
-    d.more:Hide()
-  end
-  if not book.crafter then
-    for _, o in ipairs(crafters) do if o ~= ns.MyName() then book.crafter = o break end end
-  end
-  d.whisper:SetShown(book.crafter ~= nil)
-  if book.crafter then d.whisper.label:SetText(L["Whisper %s"]:format(ns.ShortName(book.crafter))) end
-  d.wish:ClearAllPoints()
-  d.wish:SetPoint("BOTTOMLEFT", d, "BOTTOMLEFT", book.crafter and (8 + math.floor((DETAIL_W - 16 - 6) / 2) + 6) or 8, 8)
-  d.wish:Show()
+  if #crafters > SHOW then d:Line(L["and %d more"]:format(#crafters - SHOW), Kit.C.quiet) end
+  if #crafters == 0 then d:Line(L["Nobody in the guild knows this recipe yet."], Kit.C.quiet) end
+  d:End()
 end
 
 local function RefreshBook()
   if not book then return end
   local db = BookState()
-  for _, b in ipairs(book.profButtons) do
-    -- (Daniel 26.10.) the chosen profession simply in full colour; the others grey and dim, no box around it
-    b.on = b.prof == db.bookProf
-    b.tex:SetDesaturated(not b.on)
-    local v = b.on and 1 or 0.5
-    b.tex:SetVertexColor(v, v, v)
-  end
-  book.profTitle:SetText(ns.ProfName(db.bookProf))
+  local recs = ProfessionData()
+  book.side.list:SetItems(SideItems(recs, nil, true, book.side.rail))
+  SelectSide(book.side, db.bookProf)
   local data, total, shown = ns.BookEntries()
   if db.bookType ~= "all" then
     local found = false
     for _, t in ipairs(ns.bookTypes or {}) do if t.key == db.bookType then found = true end end
     if not found then db.bookType = "all" data, total, shown = ns.BookEntries() end
   end
-  book.filter:Sync()
-  book.kind:Sync()
-  book.list:SetData(data)
+  book.kind:Update()
+  book.chips:SetActive(db.bookFilter)
+  book.list:SetItems(data)
   book.count:SetText(L["%d of %d"]:format(shown, total))
   local sel = book.selected
   if sel then
     local r = ns.RECIPES[sel]
     if r and r[1] ~= db.bookProf then sel = nil end
   end
-  book.list:SetSelected(sel, true)
-  ShowDetail(sel)
+  book.selected = sel
+  ns.db.bookSpell = sel
+  local picked
+  for _, e in ipairs(data) do if e.spell and e.spell == sel then picked = e break end end
+  book.list:Select(picked)
+  if book._w then book:Layout(book._w, book._h, book._mode) end
 end
 ns.RefreshBook = RefreshBook
 
 function ns.RecipeBookShow(prof, spell)
   local db = BookState()
   if prof and ns.PROF_BY_ID[prof] and ns.PROF_BY_ID[prof].craft then db.bookProf = prof end
-  if book then book.selected = spell end
+  if book then book.selected, book.overlay = spell, spell ~= nil or nil end
   db.bookSpell = spell
 end
-local function EditBox(parent, x, y, w, numeric, tip)
-  local e = UI.EditBox(parent, w, tip, { numeric = numeric, onChange = function() RefreshBook() end })
-  e:SetPoint("TOPLEFT", parent, "TOPLEFT", x, y)
-  return e
+
+-- a new profession starts with empty search and level fields (Daniel 25.10.)
+local function ClearFields()
+  for _, f in ipairs({ book.search, book.from, book.to }) do
+    f:SetText("")
+    if f.hint then f.hint:Show() end
+    if f.clear then f.clear:Hide() end
+    if f.ClearFocus then f:ClearFocus() end
+  end
 end
 
 ns.PAGE_BUILDERS.recipes = function(p)
   book = p
   BookState()
-  p.profButtons = {}
-  local x = 0
-  for _, pr in ipairs(ns.PROFS) do
-    if pr.craft then
-      local b = CreateFrame("Button", nil, p)
-      b:SetSize(24, 24)
-      b:SetPoint("TOPLEFT", p, "TOPLEFT", x, 0)
-      b.prof = pr.id
-      b.tex = b:CreateTexture(nil, "ARTWORK")
-      b.tex:SetAllPoints()
-      b.tex:SetTexture(ns.ProfIcon(pr.id))
-      b:SetScript("OnClick", ns.Guard("book prof", function(self)
-        ns.db.bookProf = self.prof
-        ns.db.bookType = "all"
-        book.selected = nil
-        -- a new profession starts with empty search and skill fields (Daniel 25.10.)
-        for _, f in ipairs({ book.search, book.from, book.to }) do
-          f:SetText("")
-          if f.hint then f.hint:Show() end
-          if f.clear then f.clear:Hide() end
-          if f.ClearFocus then f:ClearFocus() end
-        end
-        RefreshBook()
-      end))
-      b:SetScript("OnEnter", function(self)
-        if not self.on then self.tex:SetVertexColor(0.85, 0.85, 0.85) end
-        Style.Tooltip(self, ns.ProfName(self.prof))
-      end)
-      b:SetScript("OnLeave", function(self)
-        if not self.on then self.tex:SetVertexColor(0.5, 0.5, 0.5) end
-        Style.HideTooltip(self)
-      end)
-      p.profButtons[#p.profButtons + 1] = b
-      x = x + 28
-    end
-  end
-  p.filter = UI.Dropdown(p, 160, {
-    title = L["Filter"],
-    get = function() return BookState().bookFilter end,
-    options = function()
-      local out = {}
-      for _, f in ipairs(ns.BOOK_FILTERS) do out[#out + 1] = { f, L[FILTER_TEXT[f]] } end
+  p.side = Kit.Sidebar(p, { onClick = function(e)
+    if not e.prof or e.prof == ns.db.bookProf then return end
+    ns.db.bookProf = e.prof
+    ns.db.bookType = "all"
+    p.selected = nil
+    ClearFields()
+    RefreshBook()
+  end })
+  p.side.rail = true
+  p.kind = Kit.Dropdown(p, {
+    items = function()
+      local out = { { value = "all", text = L["All types"] } }
+      for _, t in ipairs(ns.bookTypes or {}) do out[#out + 1] = { value = t.key, text = t.label } end
       return out
     end,
-    onPick = function(key) BookState().bookFilter = key RefreshBook() end,
-  })
-  p.filter:SetPoint("TOPRIGHT", p, "TOPLEFT", PAGE_W, 0)
-  -- (Daniel 26.10.: "in dem rot markierten Bereich noch das ausgewählte Handwerk reinschreiben") the chosen profession's name in the free
-  -- space between the profession buttons and the filter
-  local titleX = x + 8
-  p.profTitle = UI.Text(p, "GameFontNormalLarge", titleX, -4, math.max(60, PAGE_W - 160 - 12 - titleX), "gold")
-  p.search = EditBox(p, 206, -30, 220, false, L["Search"])
-  -- from and to: the level from which the crafted item can be worn or used (Daniel 26.10.), not the skill
-  p.from = EditBox(p, 432, -30, 44, true, L["from"])
-  p.to = EditBox(p, 480, -30, 44, true, L["to"])
-  for _, f in ipairs({ p.from, p.to }) do
-    f:HookScript("OnEnter", function(self)
-      Style.Tooltip(self, L["Wearable from level"], { L["Shows recipes whose item can be worn or used from this character level up to that level."] })
-    end)
-    f:HookScript("OnLeave", function(self) Style.HideTooltip(self) end)
-  end
-  p.search.nextField, p.from.nextField, p.to.nextField = p.from, p.to, p.search
-  p.search.prevField, p.from.prevField, p.to.prevField = p.to, p.search, p.from
-  p.kind = UI.Dropdown(p, 200, {
-    title = L["Type"],
     get = function() return BookState().bookType end,
-    options = function()
-      local out = { { "all", L["All types"] } }
-      for _, t in ipairs(ns.bookTypes or {}) do out[#out + 1] = { t.key, t.label } end
-      return out
-    end,
-    onPick = function(key) BookState().bookType = key book.selected = nil RefreshBook() end,
+    set = function(key) BookState().bookType = key p.selected = nil RefreshBook() end,
   })
-  p.kind:SetPoint("TOPLEFT", p, "TOPLEFT", 0, -29)
-  p.count = UI.Text(p, "GameFontHighlightSmall", PAGE_W - 120, -34, 120, "textHint")
-  p.count:SetJustifyH("RIGHT")
-  p.list = ns.NewList(p, { x = 0, y = -TOP, width = LIST_W, height = CONTENT_H - TOP, rowHeight = 20,
-    onSelect = function(e)
-      if e.fold then
-        local db = BookState()
-        if e.auto then
-          book.autoClosed = book.autoClosed or {}
-          book.autoClosed[e.fold] = not book.autoClosed[e.fold] or nil
-        else
-          db.bookOpen[e.fold] = not db.bookOpen[e.fold] or nil
-        end
-        RefreshBook()
-      elseif e.spell then
-        -- shift-click puts the link into the open chat line, like in the game's profession window
-        if IsShiftKeyDown and IsShiftKeyDown() and ns.LinkRecipe(e.spell) then return end
-        book.selected = e.spell
-        book.list:SetSelected(e.spell)
-        ShowDetail(e.spell)
+  p.kind:SetTooltip(L["Type"], { L["Click: choose"] })
+  p.search = Kit.SearchBox(p, { placeholder = L["Recipe, item"], onChange = function() RefreshBook() end })
+  -- from and to: the level from which the crafted item can be worn or used (Daniel 26.10.), not the skill
+  p.from = Kit.EditBox(p, { numeric = true, min = 1, max = 99, maxLetters = 2, placeholder = L["from"], onChange = function() RefreshBook() end })
+  p.to = Kit.EditBox(p, { numeric = true, min = 1, max = 99, maxLetters = 2, placeholder = L["to"], onChange = function() RefreshBook() end })
+  for _, f in ipairs({ p.from, p.to }) do
+    f:SetTooltip(L["Wearable from level"], { L["Shows recipes whose item can be worn or used from this character level up to that level."] })
+  end
+  p.from:SetNext(p.to) p.to:SetNext(p.from)
+  p.chips = Kit.ChipBar(p, { onChange = function(key)
+    BookState().bookFilter = key
+    RefreshBook()
+  end })
+  for _, f in ipairs(ns.BOOK_FILTERS) do p.chips:Add(f, L[FILTER_TEXT[f]]) end
+  p.count = Kit.Text(p, "sub", Kit.C.muted, "RIGHT")
+  p.list = Kit.List(p, {
+    onToggle = function(e)
+      if not e.fold then return end
+      local db = BookState()
+      if e.auto then
+        p.autoClosed = p.autoClosed or {}
+        p.autoClosed[e.fold] = e.collapsed or nil
+      else
+        db.bookOpen[e.fold] = not e.collapsed or nil
       end
-    end })
-
-  -- detail
-  local d = CreateFrame("Frame", nil, p)
-  d:SetSize(DETAIL_W, CONTENT_H - TOP)
-  d:SetPoint("TOPLEFT", p, "TOPLEFT", DETAIL_X, -TOP)
-  UI.Skin(d, Style.PAL.edge, Style.PAL.well)
-  p.detail = d
-  d.icon = CreateFrame("Button", nil, d)
-  d.icon:SetSize(36, 36)
-  d.icon:SetPoint("TOPLEFT", d, "TOPLEFT", 8, -8)
-  d.icon.tex = d.icon:CreateTexture(nil, "ARTWORK")
-  d.icon.tex:SetAllPoints()
-  d.icon:SetScript("OnEnter", function(self)
-    if not GameTooltip then return end
-    ns.Call(GameTooltip.SetOwner, GameTooltip, self, "ANCHOR_RIGHT")
-    if self.item and self.item > 0 then
-      if GameTooltip.SetItemByID then ns.Call(GameTooltip.SetItemByID, GameTooltip, self.item)
-      else ns.Call(GameTooltip.SetHyperlink, GameTooltip, "item:" .. self.item) end
-    elseif self.spell then
-      ns.Call(GameTooltip.SetSpellByID, GameTooltip, self.spell)
-    end
-    ns.Call(GameTooltip.Show, GameTooltip)
-  end)
-  d.icon:SetScript("OnLeave", function() if GameTooltip then ns.Call(GameTooltip.Hide, GameTooltip) end end)
-  d.title = UI.Text(d, "GameFontNormal", 52, -10, DETAIL_W - 140, "gold")
-  local want
-  want = UI.CheckBox(d, L["Want"], function() return want and want.spell and ns.IsWanted and ns.IsWanted(want.spell) end,
-    function()
-      local sp = want and want.spell
-      if not sp then return end
-      ns.SetWanted(sp, not ns.IsWanted(sp))
-      ShowDetail(sp)
-    end, { w = 70 })
-  d.want = want
-  d.want:SetPoint("TOPRIGHT", d, "TOPRIGHT", -8, -10)
-  d.want:SetTip(L["Want"], { L["Tell the guild you want to learn this recipe. Recipe items then name you in their tooltip."] })
-  d.want:Hide()
-  d.sub = UI.Text(d, "GameFontHighlightSmall", 52, -28, DETAIL_W - 60, "textSecondary")
-  d.src = UI.Text(d, "GameFontHighlightSmall", 8, -52, DETAIL_W - 16, "textHint")
-  d.makes = UI.Text(d, "GameFontHighlightSmall", 8, -68, DETAIL_W - 16, "textPrimary")
-  d.wanted = UI.Text(d, "GameFontHighlightSmall", 8, -68, DETAIL_W - 16, "accent")
-  d.rhead = UI.Text(d, "GameFontNormalSmall", 8, -84, DETAIL_W - 16, "gold")
-  d.rhead:SetText(L["Reagents"])
-  -- reagent rows: 16 px icon, name, have/need right aligned; mouse over shows the item
-  d.rows = {}
-  for i = 1, 8 do
-    local r = CreateFrame("Button", nil, d)
-    r:SetSize(DETAIL_W - 16, 18)
-    r.tex = r:CreateTexture(nil, "ARTWORK")
-    r.tex:SetSize(16, 16)
-    r.tex:SetPoint("LEFT", r, "LEFT", 0, 0)
-    r.count = r:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    r.count:SetPoint("RIGHT", r, "RIGHT", 0, 0)
-    r.count:SetJustifyH("RIGHT")
-    r.name = r:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    r.name:SetPoint("LEFT", r.tex, "RIGHT", 6, 0)
-    r.name:SetPoint("RIGHT", r.count, "LEFT", -6, 0)
-    r.name:SetJustifyH("LEFT")
-    if r.name.SetWordWrap then r.name:SetWordWrap(false) end
-    r:SetScript("OnEnter", function(self)
-      if not GameTooltip or not self.item then return end
-      ns.Call(GameTooltip.SetOwner, GameTooltip, self, "ANCHOR_RIGHT")
-      if GameTooltip.SetItemByID then ns.Call(GameTooltip.SetItemByID, GameTooltip, self.item)
-      else ns.Call(GameTooltip.SetHyperlink, GameTooltip, "item:" .. self.item) end
-      ns.Call(GameTooltip.AddLine, GameTooltip, L["Click: wish it from the guild's gatherers"], 0.25, 0.66, 0.96)
-      ns.Call(GameTooltip.Show, GameTooltip)
-    end)
-    r:SetScript("OnLeave", function() if GameTooltip then ns.Call(GameTooltip.Hide, GameTooltip) end end)
-    -- click: wish this reagent from the guild's gatherers (Durchgang 5 Nr. 2)
-    r:SetScript("OnClick", ns.Guard("book reagent", function(self)
-      if self.item and ns.ShowWishForm then ns.ShowWishForm(nil, self.item) end
-    end))
-    r:Hide()
-    d.rows[i] = r
-  end
-  d.line = d:CreateTexture(nil, "ARTWORK")
-  d.line:SetHeight(1)
-  d.line:SetColorTexture(Style.PAL.edge[1], Style.PAL.edge[2], Style.PAL.edge[3], 0.35)
-  d.head = UI.Text(d, "GameFontNormalSmall", 8, -212, DETAIL_W - 16, "gold")
-  d.head:SetText(L["Who can craft it"])
-  d.crafters = {}
-  for i = 1, 30 do
-    local b = CreateFrame("Button", nil, d)
-    b:SetSize(DETAIL_W - 16, 18)
-    b.hover = b:CreateTexture(nil, "BACKGROUND")
-    b.hover:SetAllPoints()
-    b.hover:SetColorTexture(C.rowHover[1], C.rowHover[2], C.rowHover[3], C.rowHover[4] or 0.05)
-    b.hover:Hide()
-    b.label = b:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    b.label:SetPoint("LEFT", b, "LEFT", 6, 0)
-    b.label:SetJustifyH("LEFT")
-    b:SetScript("OnEnter", function(self) self.hover:Show() end)
-    b:SetScript("OnLeave", function(self) self.hover:Hide() end)
-    b:SetScript("OnClick", ns.Guard("book crafter", function(self)
-      if not self.owner or self.owner == ns.MyName() then return end
-      book.crafter = self.owner
-      d.whisper.label:SetText(L["Whisper %s"]:format(ns.ShortName(self.owner)))
-      d.whisper:Show()
-    end))
-    b:Hide()
-    d.crafters[i] = b
-  end
-  d.more = UI.Text(d, "GameFontHighlightSmall", 8, -332, DETAIL_W - 16, "textHint")
-  local BW = math.floor((DETAIL_W - 16 - 6) / 2)
-  d.whisper = UI.FlatButton(d, BW, 24, "")
-  d.whisper:SetPoint("BOTTOMLEFT", d, "BOTTOMLEFT", 8, 8)
-  d.whisper:SetScript("OnClick", ns.Guard("book whisper", function()
-    if book.crafter and book.selected then ns.WhisperCrafter(book.crafter, book.selected) end
-  end))
-  d.wish = UI.FlatButton(d, BW, 24, L["Wish"])
-  d.wish:SetPoint("BOTTOMLEFT", d, "BOTTOMLEFT", 8 + BW + 6, 8)
-  d.wish:SetScript("OnClick", ns.Guard("book wish", function() if book.selected and ns.ShowWishForm then ns.ShowWishForm(book.selected) end end))
-  d.wish:SetTip(L["Wish"], { L["Ask the guild for this recipe: crafters see your wish in their wish list."] })
-
+      RefreshBook()
+    end,
+    onClick = function(e)
+      if not e.spell then return end
+      -- shift-click puts the link into the open chat line, like in the game's profession window
+      if IsShiftKeyDown and IsShiftKeyDown() and ns.LinkRecipe(e.spell) then return end
+      p.selected, p.overlay = e.spell, true
+      ns.db.bookSpell = e.spell
+      p.list:Select(e)
+      ns.Relayout()
+    end,
+  })
+  p.list.columns = { { key = "name", width = 120, grow = true }, { key = "skill", width = 30, justify = "RIGHT" }, { key = "mark", width = 44, justify = "RIGHT" } }
+  p.list.tableIcon = true
+  p.list:SetEmpty(L["No recipe fits the filter."])
+  p.detail = Kit.Detail(p, { onClose = function()
+    p.overlay = nil
+    if p._narrow then p.selected = nil ns.db.bookSpell = nil p.list:Select(nil) end
+    ns.Relayout()
+  end })
   p.selected = ns.db.bookSpell
-  p.OnResize = function(self, h)
-    self.list:SetHeight(h - TOP)
-    self.detail:SetHeight(h - TOP)
-  end
-  -- wider window: the recipe list takes the extra width, the detail box keeps its size and moves right
-  p.OnWidth = function(self, w)
-    local dw = w - PAGE_W
-    self.filter:ClearAllPoints()
-    self.filter:SetPoint("TOPRIGHT", self, "TOPLEFT", w, 0)
-    self.profTitle:SetWidth(math.max(60, w - 160 - 12 - titleX))
+  p.Hint = function() return L["Shift-click: link in the chat"] .. "   " .. L["Click a reagent's symbol: wish it from the guild's gatherers"] end
+  p.Layout = function(self, w, h, mode)
+    self._w, self._h, self._mode = w, h, mode
+    self.side:ClearAllPoints()
+    self.side:SetPoint("TOPLEFT", self, "TOPLEFT", 0, 0)
+    self.side:Layout(h, true)
+    if self._lastMode ~= mode then self._lastMode = mode if self._built then RefreshBook() return end end
+    local x0 = self.side:Width() + S.pad
+    -- the card beside the list while the list keeps LIST_MIN, else over it
+    local narrow = w - x0 - S.pad - DETAIL_W - S.pad < LIST_MIN
+    self._narrow = narrow
+    local side = narrow and 0 or DETAIL_W + S.pad
+    local lw = w - x0 - S.pad - side
+    -- first line: type, search, level from and to, the count on the right
+    local y = S.gap
+    local cw = math.min(Kit.TextWidth(self.count), 90)
+    local room = lw - cw - S.gap
+    local kw = math.max(80, math.min(150, math.floor(room * 0.28)))
+    local fw = 40
+    local sw = math.max(60, math.min(220, room - kw - 2 * fw - 3 * S.gap))
+    local x = x0
+    self.kind:ClearAllPoints() self.kind:SetPoint("TOPLEFT", self, "TOPLEFT", x, -y) self.kind:Layout(kw)
+    x = x + kw + S.gap
+    self.search:ClearAllPoints() self.search:SetPoint("TOPLEFT", self, "TOPLEFT", x, -y) self.search:Layout(sw)
+    x = x + sw + S.gap
+    self.from:ClearAllPoints() self.from:SetPoint("TOPLEFT", self, "TOPLEFT", x, -y) self.from:Layout(fw)
+    x = x + fw + 4
+    self.to:ClearAllPoints() self.to:SetPoint("TOPLEFT", self, "TOPLEFT", x, -y) self.to:Layout(fw)
     self.count:ClearAllPoints()
-    self.count:SetPoint("TOPLEFT", self, "TOPLEFT", w - 120, -34)
-    self.list:SetWidth(LIST_W + dw)
-    self.detail:ClearAllPoints()
-    self.detail:SetPoint("TOPLEFT", self, "TOPLEFT", DETAIL_X + dw, -TOP)
+    self.count:SetPoint("TOPRIGHT", self, "TOPLEFT", x0 + lw, -y - 7)
+    Kit.Fit(self.count, 90)
+    -- second line: the filter chips
+    y = y + S.button + S.gap
+    self.chips:ClearAllPoints()
+    self.chips:SetPoint("TOPLEFT", self, "TOPLEFT", x0, -y)
+    self.chips:Layout(lw)
+    y = y + S.chip + S.gap
+    self.list:ClearAllPoints()
+    self.list:SetPoint("TOPLEFT", self, "TOPLEFT", x0, -y)
+    self.list:Resize(lw, math.max(40, h - y - S.gap))
+    -- the card: a column of its own from 960 px, else over the list when a recipe is picked
+    local sel = self.selected
+    if narrow and not self.overlay then sel = nil end
+    local show = sel ~= nil or not narrow
+    self.detail:SetShown(show)
+    if show then
+      local dw = narrow and math.min(DETAIL_W, w - x0 - S.pad) or DETAIL_W
+      self.detail:ClearAllPoints()
+      self.detail:SetPoint("TOPRIGHT", self, "TOPRIGHT", -S.pad, -S.gap)
+      self.detail:Layout(dw, h - 2 * S.gap)
+      if narrow then pcall(self.detail.SetFrameLevel, self.detail, (self.list:GetFrameLevel() or 1) + 20) end
+      if sel then
+        if narrow then self.detail.close:Show() else self.detail.close:Hide() end
+        FillBookDetail(self.detail, sel)
+      else
+        self.detail.close:Hide()
+        self.detail:SetHead({ title = L["Recipes"], meta = ns.ProfName(BookState().bookProf) })
+        self.detail:SetActions({})
+        self.detail:Begin()
+        self.detail:Para(L["Choose a recipe on the left."], Kit.C.muted)
+        self.detail:Para(L["Wishes start here: choose a recipe, then \"Wish\". Crafters in the guild see it in their wish list."], Kit.C.quiet)
+        self.detail:End()
+      end
+    end
   end
-  p.Refresh = function() RefreshBook() end
+  p.Refresh = function(self)
+    self._built = true
+    RefreshBook()
+  end
 end
 
 -- item names arrive later from the server: repaint the open book once

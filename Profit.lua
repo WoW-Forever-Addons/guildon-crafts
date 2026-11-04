@@ -1,28 +1,17 @@
 local _, ns = ...
 local L = ns.L
-local Style = ns.Style
-local C = Style.COLORS
+local Kit = ns.Kit
 
 ---------------------------------------------------------------------------
--- Tab "Profitable" (GUILDON_PLAN.md step 5, "Bedienung"): recipes by profit per craft. Columns revenue (auction
--- price minus 5 percent fee), reagent cost, profit, age of the prices; crafters in the guild in the detail.
--- Switches: only my recipes, count my stock (reagents in bags and bank cost nothing). Prices from Prices.lua.
+-- Tab "Profitable" (GUILDON_PLAN.md step 5, "Bedienung"; Don style 02.11.2026, BAUSTEINE.md: the same table with column
+-- heads and a card as the other pages): recipes by profit per craft. Columns revenue (auction price minus 5 percent fee),
+-- reagent cost, profit, age of the prices; a click on a head sorts. The card on the right: the reagents with price and what
+-- the player has, the crafters in the guild, wish and whisper. Switches: only my recipes, count my stock (reagents in bags
+-- and bank cost nothing). Prices from Prices.lua; "Scan prices" at the auction house.
 ---------------------------------------------------------------------------
-local UI = ns.UI
-local PAGE_W, CONTENT_H = ns.PAGE_W, ns.CONTENT_H
-local LIST_W = 440
-local DETAIL_X = LIST_W + 12
-local DETAIL_W = PAGE_W - DETAIL_X
-local TOP = 30
+local S = Kit.SIZE
+local DETAIL_W = 300
 local FEE = 0.05
-local COLS = { { 196, 58 }, { 258, 58 }, { 320, 64 }, { 390, 40 } }
-local PAL = Style.PAL
-local HEAD_H = 20
--- sortable columns: key, x, width, justify (the list columns are right aligned)
-local HEADS = { { "name", 0, 190, "LEFT", "Recipe" }, { "revenue", 196, 58, "RIGHT", "Revenue" }, { "cost", 258, 58, "RIGHT", "Reagents" },
-  { "profit", 320, 64, "RIGHT", "Profit" }, { "age", 390, 40, "RIGHT", "Age" } }
-
-local function Icon(tex, size) return ("|T%s:%d:%d|t"):format(tostring(tex), size or 14, size or 14) end
 
 -- short money text for the columns: 12.3g, 45s, 7c
 function ns.ShortMoney(c)
@@ -111,159 +100,117 @@ local function Entries()
     local r = rows[i]
     local name = ns.SpellName(r.spell) or L["Recipe %d"]:format(r.spell)
     local good = r.profit > 0
-    out[#out + 1] = { key = r.spell, row = r,
-      text = Icon(ns.RecipeIcon(r.spell, r.info)) .. " " .. name,
-      color = #r.crafters > 0 and "textPrimary" or "textHint",
-      cols = { ns.ShortMoney(r.revenue), ns.ShortMoney(r.cost),
-        ("|c%s%s|r"):format(Style.Hex(good and "good" or "critical"), ns.ShortMoney(r.profit)),
-        ("|c%s%s|r"):format(Style.Hex("textHint"), AgeShort(r.oldest)) } }
+    local itemID, quality = ns.RecipeItemQuality(r.info)
+    out[#out + 1] = { kind = "table", key = r.spell, spell = r.spell, row = r, icon = ns.RecipeIcon(r.spell, r.info), dim = #r.crafters == 0,
+      itemID = itemID, quality = quality,
+      cells = { { text = name, color = #r.crafters > 0 and Kit.C.title or Kit.C.quiet }, { text = ns.ShortMoney(r.revenue), color = Kit.C.body },
+        { text = ns.ShortMoney(r.cost), color = Kit.C.body }, { text = ns.ShortMoney(r.profit), color = good and Kit.C.green or Kit.C.red },
+        { text = AgeShort(r.oldest), color = Kit.C.quiet } } }
   end
   return out, #rows, missing
 end
 
-local function ShowDetail(spell)
-  local d = page.detail
-  page.selected = spell
-  for _, r in ipairs(d.rows) do r:Hide() end
-  if not spell then
-    d.title:SetText("")
-    d.icon:Hide()
-    d.sub:SetText(L["Choose a recipe on the left."])
-    d.head:Hide() d.crafters:SetText("") d.wish:Hide() d.whisper:Hide()
-    return
-  end
+local function FillDetail(d, spell)
   local info = ns.RecipeInfo(spell)
-  d.icon:Show()
-  d.icon.tex:SetTexture(ns.RecipeIcon(spell, info))
-  d.icon.item, d.icon.spell = info.item, spell
-  d.title:SetText(ns.SpellName(spell) or L["Recipe %d"]:format(spell))
-  local p, t, who, flagged = ns.Price(info.item)
+  local p, t, _, flagged = ns.Price(info.item)
   local sale = p and (ns.MoneyText(p) .. ((info.count or 1) > 1 and (" x" .. info.count) or "")) or "?"
-  d.sub:SetText(L["Sells for %s"]:format(sale) .. (t and ("  |c" .. Style.Hex("textHint") .. ns.UI.AgeText(t) .. "|r") or "")
-    .. (flagged and ("  |c" .. Style.Hex("warning") .. L["(odd price)"] .. "|r") or ""))
-  local y = -52
-  d.head:Show()
-  d.head:ClearAllPoints()
-  d.head:SetPoint("TOPLEFT", d, "TOPLEFT", 8, y)
-  y = y - 18
-  for i, rg in ipairs(info.reagents or {}) do
-    local r = d.rows[i]
-    if not r then break end
-    local rp = ns.Price(rg[1])
-    local have = ns.ItemCount(rg[1])
-    r.item = rg[1]
-    r.tex:SetTexture(ns.ItemIcon(rg[1]) or "Interface\\Icons\\INV_Misc_QuestionMark")
-    r.name:SetText(rg[2] .. " x " .. (ns.ItemName(rg[1]) or ("#" .. rg[1])))
-    r.count:SetText((rp and ns.ShortMoney(rp * rg[2]) or "?") .. "  |c" .. Style.Hex(have >= rg[2] and "good" or "critical") .. have .. "/" .. rg[2] .. "|r")
-    r:ClearAllPoints()
-    r:SetPoint("TOPLEFT", d, "TOPLEFT", 8, y)
-    r:Show()
-    y = y - 18
-  end
+  local itemID, quality = ns.RecipeItemQuality(info)
+  d:SetHead({ icon = ns.RecipeIcon(spell, info), title = ns.SpellName(spell) or L["Recipe %d"]:format(spell),
+    itemID = itemID, titleColor = quality and Kit.QualityColor(quality) or nil,
+    meta = L["Sells for %s"]:format(sale), pill = flagged and { L["(odd price)"], "warn" } or nil })
   local cr = ns.CraftersOf(spell)
-  local names = {}
-  for i = 1, math.min(#cr, 6) do
-    local o = cr[i]
-    names[#names + 1] = (ns.IsOnline(o) and "|cff4fd16a" or "|c" .. Style.Hex("textHint")) .. ns.ShortName(o) .. "|r"
-  end
-  d.crafters:ClearAllPoints()
-  d.crafters:SetPoint("TOPLEFT", d, "TOPLEFT", 8, y - 8)
-  d.crafters:SetText(#cr > 0 and (L["Crafters: %s"]:format(table.concat(names, ", ")) .. (#cr > 6 and (" " .. L["and %d more"]:format(#cr - 6)) or ""))
-    or L["Nobody in the guild knows this recipe yet."])
   page.crafter = nil
   for _, o in ipairs(cr) do if o ~= ns.MyName() and ns.IsOnline(o) then page.crafter = o break end end
-  d.whisper:SetShown(page.crafter ~= nil)
-  if page.crafter then d.whisper.label:SetText(L["Whisper %s"]:format(ns.ShortName(page.crafter))) end
-  d.wish:Show()
+  local acts = { { text = L["Wish"], kind = "primary", onClick = function() ns.ShowWishForm(spell) end } }
+  if page.crafter then
+    local o = page.crafter
+    acts[#acts + 1] = { text = L["Whisper %s"]:format(ns.ShortName(o)), onClick = function() ns.WhisperCrafter(o, spell) end }
+  end
+  d:SetActions(acts)
+  d:Begin()
+  if t then d:Line(L["Price from"], Kit.C.muted, ns.UI.AgeText(t), Kit.C.quiet) end
+  d:Section(L["Reagents: price and in your bags"])
+  for _, rg in ipairs(info.reagents or {}) do
+    local rp = ns.Price(rg[1])
+    local have = ns.ItemCount(rg[1])
+    d:Item(rg[1], rg[2] .. " x " .. (ns.ItemName(rg[1]) or ("#" .. rg[1])), Kit.C.body,
+      (rp and ns.ShortMoney(rp * rg[2]) or "?") .. "  " .. have .. "/" .. rg[2], have >= rg[2] and Kit.C.green or Kit.C.red)
+  end
+  d:Section(L["Who can craft it"], #cr > 0 and tostring(#cr) or nil)
+  for i = 1, math.min(#cr, 8) do
+    local o = cr[i]
+    local on = ns.IsOnline(o)
+    d:Line(ns.ShortName(o), on and Kit.C.green or Kit.C.quiet, on and L["online"] or L["offline"], on and Kit.C.green or Kit.C.quiet)
+  end
+  if #cr > 8 then d:Line(L["and %d more"]:format(#cr - 8), Kit.C.quiet) end
+  if #cr == 0 then d:Line(L["Nobody in the guild knows this recipe yet."], Kit.C.quiet) end
+  d:End()
 end
 
-local function PaintHeads(p)
-  local db = State()
-  local key, desc = db.profitSort or "profit", db.profitDesc ~= false
-  for _, h in ipairs(p.heads) do
-    local on = h.key == key
-    UI.Color(h.label, on and "blue" or "textSecondary")
-    h.arrow:SetShown(on)
-    if on then h.arrow:SetTexCoord(0, 1, desc and 0 or 1, desc and 1 or 0) end
+local function Placeholder(d, n)
+  d.close:Hide()
+  d:SetHead({ title = L["Profitable"], meta = L["Choose a recipe on the left."] })
+  d:SetActions({})
+  d:Begin()
+  if n == 0 then
+    d:Para(L["No prices yet. With Auctionator, Auctioneer or aux: scan at the auction house; Guildon Crafts shares the prices with the guild. Without: \"Scan prices\" at the auction house."], Kit.C.muted)
+  else
+    d:Para(L["Choose a recipe on the left."], Kit.C.muted)
   end
+  d:End()
+end
+
+local function Info(n, missing)
+  local addons = {}
+  for _, a in ipairs(ns.PriceAddons()) do addons[#addons + 1] = a.name end
+  return L["%d recipes with prices, %d without."]:format(n, missing) .. "  " ..
+    (#addons > 0 and L["Prices from: %s and the guild"]:format(table.concat(addons, ", ")) or L["Prices from the guild and your own scans"])
 end
 
 local function Refresh()
   if not page then return end
   ns.InvalidatePrices()
   local db = State()
-  page.prof:Sync()
-  PaintHeads(page)
-  page.mine:Sync()
-  page.stock:Sync()
+  page.prof:Update()
+  page.mine:SetValue(db.profitMine)
+  page.stock:SetValue(db.profitStock)
+  local key, desc = db.profitSort or "profit", db.profitDesc ~= false
+  if page.head.sortKey ~= key or page.head.desc ~= desc then page.head:SetSort(key, desc) end
   local data, n, missing = Entries()
-  page.list:SetData(data)
-  local addons = {}
-  for _, a in ipairs(ns.PriceAddons()) do addons[#addons + 1] = a.name end
-  page.info:SetText(L["%d recipes with prices, %d without."]:format(n, missing) .. "  " ..
-    (#addons > 0 and L["Prices from: %s and the guild"]:format(table.concat(addons, ", ")) or L["Prices from the guild and your own scans"]))
-  page.scan:SetShown(ns.AuctionHouseOpen and ns.AuctionHouseOpen())
-  page.empty:SetShown(n == 0)
+  page.n = n
+  page.list:SetItems(data)
+  page.info = Info(n, missing)
+  page.scan:SetShown(ns.AuctionHouseOpen and ns.AuctionHouseOpen() and true or false)
   local sel = page.selected
   if sel and not ns.RECIPES[sel] and not ns.CraftIndex().crafters[sel] then sel = nil end
-  page.list:SetSelected(sel, true)
-  ShowDetail(sel)
+  page.selected = sel
+  local picked
+  for _, e in ipairs(data) do if e.spell == sel then picked = e break end end
+  page.list:Select(picked)
+  -- the numbers and the source of the prices in the footer (p.Hint)
+  if ns.RefreshHint then ns.RefreshHint() end
+  if page._w then page:Layout(page._w, page._h, page._mode) end
 end
 ns.RefreshProfit = Refresh
-
-local function Toggle(p, x, w, label, key)
-  local b = UI.CheckBox(p, label, function() return ns.db[key] end, function(v) ns.db[key] = v Refresh() end, { w = w })
-  b:SetPoint("TOPLEFT", p, "TOPLEFT", x, -1)
-  return b
-end
 
 ns.PAGE_BUILDERS.profit = function(p)
   page = p
   State()
-  p.prof = UI.Dropdown(p, 160, {
-    title = L["Profession"],
-    get = function() return State().profitProf end,
-    options = function()
-      local out = { { 0, L["All professions"] } }
-      for _, pr in ipairs(ns.PROFS) do if pr.craft then out[#out + 1] = { pr.id, ns.ProfName(pr.id) } end end
+  p.prof = Kit.Dropdown(p, {
+    items = function()
+      local out = { { value = 0, text = L["All professions"] } }
+      for _, pr in ipairs(ns.PROFS) do if pr.craft then out[#out + 1] = { value = pr.id, text = ns.ProfName(pr.id) } end end
       return out
     end,
-    onPick = function(key) State().profitProf = key p.selected = nil Refresh() end,
+    get = function() return State().profitProf end,
+    set = function(key) State().profitProf = key p.selected = nil Refresh() end,
   })
-  p.prof:SetPoint("TOPLEFT", p, "TOPLEFT", 0, 0)
-  p.mine = Toggle(p, 176, 150, L["Only my recipes"], "profitMine")
-  p.stock = Toggle(p, 336, 150, L["Count my stock"], "profitStock")
-  -- the table header: a click sorts by that column, a second click turns the order round, a small arrow marks it
-  p.heads = {}
-  for _, h in ipairs(HEADS) do
-    local b = CreateFrame("Button", nil, p)
-    b:SetSize(h[3], HEAD_H)
-    b:SetPoint("TOPLEFT", p, "TOPLEFT", h[2], -TOP)
-    b.key = h[1]
-    b.label = b:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    b.label:SetText(L[h[5]])
-    b.label:SetJustifyH(h[4])
-    if h[4] == "LEFT" then b.label:SetPoint("LEFT", b, "LEFT", 8, 0) else b.label:SetPoint("RIGHT", b, "RIGHT", -2, 0) end
-    b.arrow = b:CreateTexture(nil, "OVERLAY")
-    b.arrow:SetSize(10, 10)
-    b.arrow:SetTexture("Interface\\Buttons\\Arrow-Down-Up")
-    b.arrow:SetPoint("RIGHT", b.label, "LEFT", -2, 0)
-    b.arrow:Hide()
-    b:SetScript("OnClick", ns.Guard("profit sort", function(self)
-      local db = State()
-      if (db.profitSort or "profit") == self.key then db.profitDesc = not (db.profitDesc ~= false)
-      else db.profitSort = self.key db.profitDesc = self.key ~= "name" end
-      Refresh()
-    end))
-    p.heads[#p.heads + 1] = b
-  end
-  local line = UI.Line(p)
-  p.headLine = line
-  line:SetPoint("TOPLEFT", p, "TOPLEFT", 0, -(TOP + HEAD_H))
-  line:SetPoint("TOPRIGHT", p, "TOPLEFT", LIST_W, -(TOP + HEAD_H))
-  p.scan = UI.FlatButton(p, 120, 22, L["Scan prices"])
-  p.scan:SetPoint("TOPRIGHT", p, "TOPLEFT", PAGE_W, 0)
-  p.scan:SetScript("OnClick", ns.Guard("profit scan", function()
+  p.prof:SetTooltip(L["Profession"], { L["Click: choose"] })
+  p.mine = Kit.Toggle(p, { label = L["Only my recipes"], get = function() return State().profitMine end,
+    set = function(v) ns.db.profitMine = v Refresh() end })
+  p.stock = Kit.Toggle(p, { label = L["Count my stock"], get = function() return State().profitStock end,
+    set = function(v) ns.db.profitStock = v Refresh() end })
+  p.scan = Kit.Button(p, L["Scan prices"], { small = true, onClick = function()
     -- the reagents and results of the shown recipes whose price is older than a day or missing, up to 80
     local items, now = {}, time()
     for _, id in ipairs(ns.RelevantItems()) do
@@ -272,91 +219,87 @@ ns.PAGE_BUILDERS.profit = function(p)
       if #items >= 80 then break end
     end
     ns.ScanPrices(items)
-  end))
-  p.scan:SetTip(L["Scan prices"], { L["Asks the auction house for missing or old prices, one item after the other (up to 80)."] })
-  p.list = ns.NewList(p, { x = 0, y = -(TOP + HEAD_H + 2), width = LIST_W, height = CONTENT_H - TOP - HEAD_H - 22, rowHeight = 20,
-    columns = COLS, textRight = 192, growText = true,
-    onSelect = function(e) if e.row then p.list:SetSelected(e.key) ShowDetail(e.key) end end })
-  p.info = UI.Text(p, "GameFontHighlightSmall", 0, -(CONTENT_H - 16), PAGE_W, "textHint")
-  p.empty = UI.Text(p, "GameFontHighlight", 0, -TOP - 50, LIST_W, "textSecondary")
-  p.empty:SetJustifyH("CENTER")
-  p.empty:SetText(L["No prices yet. With Auctionator, Auctioneer or aux: scan at the auction house; Guildon Crafts shares the prices with the guild. Without: \"Scan prices\" at the auction house."])
-
-  local d = CreateFrame("Frame", nil, p)
-  d:SetSize(DETAIL_W, CONTENT_H - TOP - 20)
-  d:SetPoint("TOPLEFT", p, "TOPLEFT", DETAIL_X, -TOP)
-  UI.Skin(d, PAL.edge, PAL.well)
-  p.detail = d
-  d.icon = CreateFrame("Button", nil, d)
-  d.icon:SetSize(36, 36)
-  d.icon:SetPoint("TOPLEFT", d, "TOPLEFT", 8, -8)
-  d.icon.tex = d.icon:CreateTexture(nil, "ARTWORK")
-  d.icon.tex:SetAllPoints()
-  d.icon:SetScript("OnEnter", function(self)
-    if not GameTooltip or not self.item then return end
-    ns.Call(GameTooltip.SetOwner, GameTooltip, self, "ANCHOR_RIGHT")
-    ns.Call(GameTooltip.SetHyperlink, GameTooltip, "item:" .. self.item)
-    ns.Call(GameTooltip.Show, GameTooltip)
-  end)
-  d.icon:SetScript("OnLeave", function() if GameTooltip then ns.Call(GameTooltip.Hide, GameTooltip) end end)
-  d.title = UI.Text(d, "GameFontNormal", 52, -10, DETAIL_W - 60, "gold")
-  d.sub = UI.Text(d, "GameFontHighlightSmall", 52, -28, DETAIL_W - 60, "textSecondary")
-  d.head = UI.Text(d, "GameFontNormalSmall", 8, -52, DETAIL_W - 16, "gold")
-  d.head:SetText(L["Reagents: price and in your bags"])
-  d.rows = {}
-  for i = 1, 8 do
-    local r = CreateFrame("Button", nil, d)
-    r:SetSize(DETAIL_W - 16, 18)
-    r.tex = r:CreateTexture(nil, "ARTWORK")
-    r.tex:SetSize(16, 16)
-    r.tex:SetPoint("LEFT", r, "LEFT", 0, 0)
-    r.count = r:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    r.count:SetPoint("RIGHT", r, "RIGHT", 0, 0)
-    r.name = r:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    r.name:SetPoint("LEFT", r.tex, "RIGHT", 6, 0)
-    r.name:SetPoint("RIGHT", r.count, "LEFT", -6, 0)
-    r.name:SetJustifyH("LEFT")
-    r:Hide()
-    d.rows[i] = r
-  end
-  d.crafters = UI.Text(d, "GameFontHighlightSmall", 8, -220, DETAIL_W - 16, "textSecondary")
-  local BW = math.floor((DETAIL_W - 16 - 6) / 2)
-  d.wish = UI.FlatButton(d, BW, 24, L["Wish"])
-  d.wish:SetPoint("BOTTOMLEFT", d, "BOTTOMLEFT", 8, 8)
-  d.wish:SetScript("OnClick", ns.Guard("profit wish", function() if page.selected then ns.ShowWishForm(page.selected) end end))
-  d.whisper = UI.FlatButton(d, BW, 24, "")
-  d.whisper:SetPoint("LEFT", d.wish, "RIGHT", 6, 0)
-  d.whisper:SetScript("OnClick", ns.Guard("profit whisper", function()
-    if page.crafter and page.selected then ns.WhisperCrafter(page.crafter, page.selected) end
-  end))
-  -- wider window: the recipe column takes the extra width, the other columns and the detail box move right
-  p.OnWidth = function(self, w)
-    local dw = w - PAGE_W
-    for i, h in ipairs(HEADS) do
-      local b = self.heads[i]
-      if i == 1 then
-        b:SetWidth(h[3] + dw)
+  end })
+  p.scan:SetTooltip(L["Scan prices"], { L["Asks the auction house for missing or old prices, one item after the other (up to 80)."] })
+  -- the table head: a click sorts by that column, a second click turns the order round
+  p.head = Kit.TableHead(p, { icon = true, columns = {
+    { key = "name", text = L["Recipe"], width = 110, grow = true, sort = true },
+    { key = "revenue", text = L["Revenue"], width = 58, justify = "RIGHT", sort = true, desc = true },
+    { key = "cost", text = L["Reagents"], width = 58, justify = "RIGHT", sort = true, desc = true },
+    { key = "profit", text = L["Profit"], width = 62, justify = "RIGHT", sort = true, desc = true },
+    { key = "age", text = L["Age"], width = 36, justify = "RIGHT", sort = true, desc = true } },
+    onSort = function(key, desc)
+      local db = State()
+      db.profitSort, db.profitDesc = key, desc and true or false
+      Refresh()
+    end })
+  p.list = Kit.List(p, {
+    onClick = function(e)
+      if not e.row then return end
+      p.selected, p.overlay = e.key, true
+      p.list:Select(e)
+      ns.Relayout()
+    end,
+  })
+  p.list:SetEmpty(L["No recipes with prices yet."])
+  p.detail = Kit.Detail(p, { onClose = function()
+    p.overlay = nil
+    if p._mode ~= "full" then p.selected = nil p.list:Select(nil) end
+    ns.Relayout()
+  end })
+  p.Hint = function(self) return self.info or "" end
+  p.Layout = function(self, w, h, mode)
+    self._w, self._h, self._mode = w, h, mode
+    local narrow = mode ~= "full"
+    local side = narrow and 0 or DETAIL_W + S.pad
+    local lw = w - 2 * S.pad - side
+    local y = S.gap
+    local x = S.pad
+    local dw = math.max(110, math.min(170, math.floor(lw * 0.3)))
+    self.prof:ClearAllPoints() self.prof:SetPoint("TOPLEFT", self, "TOPLEFT", x, -y) self.prof:Layout(dw)
+    x = x + dw + S.gap
+    local sw = self.scan:IsShown() and math.min(self.scan.natural or 100, 120) or 0
+    if sw > 0 then
+      self.scan:Layout(sw)
+      self.scan:ClearAllPoints()
+      self.scan:SetPoint("TOPRIGHT", self, "TOPLEFT", S.pad + lw, -y - 2)
+    end
+    -- the two switches share what is left (their labels cut)
+    local room = S.pad + lw - (sw > 0 and sw + S.gap or 0) - x
+    local tw = math.floor((room - S.gap) / 2)
+    for _, t in ipairs({ self.mine, self.stock }) do
+      t:ClearAllPoints()
+      t:SetPoint("TOPLEFT", self, "TOPLEFT", x, -y - 4)
+      t:SetWidth(math.max(28, tw))
+      if t.label then Kit.Fit(t.label, math.max(1, tw - 34)) end
+      x = x + tw + S.gap
+    end
+    y = y + S.button + S.gap
+    self.head:ClearAllPoints()
+    self.head:SetPoint("TOPLEFT", self, "TOPLEFT", S.pad, -y)
+    self.head:Bind(self.list)
+    self.head:Layout(lw)
+    y = y + S.chip
+    self.list:ClearAllPoints()
+    self.list:SetPoint("TOPLEFT", self, "TOPLEFT", S.pad, -y)
+    self.list:Resize(lw, math.max(40, h - y - S.gap))
+    local sel = self.selected
+    if narrow and not self.overlay then sel = nil end
+    local show = sel ~= nil or not narrow
+    self.detail:SetShown(show)
+    if show then
+      local cwid = narrow and math.min(DETAIL_W, w - 2 * S.pad) or DETAIL_W
+      self.detail:ClearAllPoints()
+      self.detail:SetPoint("TOPRIGHT", self, "TOPRIGHT", -S.pad, -S.gap)
+      self.detail:Layout(cwid, h - 2 * S.gap)
+      if narrow then pcall(self.detail.SetFrameLevel, self.detail, (self.list:GetFrameLevel() or 1) + 20) end
+      if sel then
+        if narrow then self.detail.close:Show() else self.detail.close:Hide() end
+        FillDetail(self.detail, sel)
       else
-        b:ClearAllPoints()
-        b:SetPoint("TOPLEFT", self, "TOPLEFT", h[2] + dw, -TOP)
+        Placeholder(self.detail, self.n or 0)
       end
     end
-    self.headLine:ClearAllPoints()
-    self.headLine:SetPoint("TOPLEFT", self, "TOPLEFT", 0, -(TOP + HEAD_H))
-    self.headLine:SetPoint("TOPRIGHT", self, "TOPLEFT", LIST_W + dw, -(TOP + HEAD_H))
-    self.scan:ClearAllPoints()
-    self.scan:SetPoint("TOPRIGHT", self, "TOPLEFT", w, 0)
-    self.list:SetWidth(LIST_W + dw)
-    self.info:SetWidth(w)
-    self.empty:SetWidth(LIST_W + dw)
-    self.detail:ClearAllPoints()
-    self.detail:SetPoint("TOPLEFT", self, "TOPLEFT", DETAIL_X + dw, -TOP)
-  end
-  p.OnResize = function(self, h)
-    self.list:SetHeight(h - TOP - HEAD_H - 22)
-    self.detail:SetHeight(h - TOP - 20)
-    self.info:ClearAllPoints()
-    self.info:SetPoint("TOPLEFT", self, "TOPLEFT", 0, -(h - 16))
   end
   p.Refresh = function() Refresh() end
 end

@@ -3,11 +3,11 @@
 ## Notes: Part of Guildon: professions and recipes of the guild, wish list with orders, trade and mail help, shared auction prices and profitable crafts.
 ## Notes-deDE: Teil von Guildon: Berufe und Rezepte der Gilde, Wunschliste mit Aufträgen, Hilfe bei Handel und Post, geteilte Auktionspreise und profitable Rezepte.
 ## Author: DonCoohd
-## Version: 1.1.0
+## Version: 1.2.0
 ## X-Curse-Project-ID: 1775548
 ## Category: Professions
 ## Category-deDE: Berufe
-## IconTexture: Interface\Icons\Trade_BlackSmithing
+## IconTexture: Interface\AddOns\Guildon_Crafts\Media\minimap
 ## SavedVariables: GuildonCraftsDB
 ## AddonCompartmentFunc: GuildonCrafts_OnAddonCompartmentClick
 ## X-License: Code MIT License, Copyright (c) 2026 DonCoohd (LICENSE.txt). Data/Recipes.lua: All The Things (MIT) and CMaNGOS classic-db data, GPL v3 (see Data/Recipes-LICENSE-GPLv3.txt). Libs/LibStub: public domain.
@@ -15,6 +15,9 @@
 Libs\LibStub\LibStub.lua
 Libs\DonCore\DonCore.lua
 Libs\DonCore\Style.lua
+Libs\DonCore\MinimapButton.lua
+Libs\DonCore\Kit.lua
+Libs\DonCore\Options.lua
 Locales\enUS.lua
 Locales\deDE.lua
 Locales\frFR.lua
@@ -26,7 +29,6 @@ Locales\koKR.lua
 Locales\zhTW.lua
 Core.lua
 Shared\Base.lua
-Shared\Theme.lua
 Shared\Guild.lua
 Shared\Comm.lua
 Migrate.lua
@@ -35,10 +37,9 @@ Professions.lua
 Wishes.lua
 Prices.lua
 Demo.lua
-Shared\Kit.lua
-Shared\List.lua
 Shared\Window.lua
 Pages.lua
+Options.lua
 RecipeBook.lua
 Export.lua
 WishList.lua

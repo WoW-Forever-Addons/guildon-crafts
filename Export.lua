@@ -1,7 +1,5 @@
 local _, ns = ...
 local L = ns.L
-local Style = ns.Style
-local C = Style.COLORS
 
 ---------------------------------------------------------------------------
 -- Export for the guild website (Daniel 25.10.2026, Frankston's libra-vivendi page): one line per own character with
@@ -93,72 +91,14 @@ function ns.ParseExport(line)
 end
 
 ---------------------------------------------------------------------------
--- Copy box: a dialog with a text the player selects and copies (Ctrl+C). Also used by other parts of Guildon.
+-- Copy box: a dialog with a text the player selects and copies (Ctrl+C). Also used by the shopping list. (02.11.2026, StyleKit 2
+-- step 4) DonCore's Kit.ShowCopy, the same box for every Don addon.
 ---------------------------------------------------------------------------
-local box
-local function BuildBox()
-  box = CreateFrame("Frame", "GuildonCraftsCopyBox", UIParent)
-  box:SetSize(520, 260)
-  box:SetPoint("CENTER", UIParent, "CENTER", 0, 60)
-  box:SetFrameStrata("DIALOG")
-  box:EnableMouse(true)
-  box:SetMovable(true)
-  box:RegisterForDrag("LeftButton")
-  box:SetScript("OnDragStart", function(self) self:StartMoving() end)
-  box:SetScript("OnDragStop", function(self) self:StopMovingOrSizing() end)
-  ns.UI.Skin(box, Style.PAL.popup, { C.background[1], C.background[2], C.background[3], 0.97 })
-  box.title = ns.UI.Text(box, "GameFontNormal", 12, -10, 496, "gold")
-  box.hint = ns.UI.Text(box, "GameFontHighlightSmall", 12, -30, 496, "textSecondary")
-  local scroll = CreateFrame("ScrollFrame", nil, box)
-  scroll:SetPoint("TOPLEFT", box, "TOPLEFT", 12, -56)
-  scroll:SetPoint("BOTTOMRIGHT", box, "BOTTOMRIGHT", -12, 44)
-  local sbg = scroll:CreateTexture(nil, "BACKGROUND")
-  sbg:SetAllPoints()
-  sbg:SetColorTexture(1, 1, 1, 0.06)
-  local edit = CreateFrame("EditBox", nil, scroll)
-  edit:SetMultiLine(true)
-  edit:SetAutoFocus(false)
-  edit:SetFontObject(GameFontHighlightSmall)
-  edit:SetWidth(490)
-  edit:SetTextInsets(4, 4, 4, 4)
-  edit:SetScript("OnEscapePressed", function() box:Hide() end)
-  -- the text is fixed: typing restores it, so a slip of the keyboard cannot spoil the copy
-  edit:SetScript("OnTextChanged", function(self, user)
-    if user and box.text and self:GetText() ~= box.text then self:SetText(box.text) self:HighlightText() end
-  end)
-  edit:SetScript("OnEditFocusGained", function(self) self:HighlightText() end)
-  scroll:SetScrollChild(edit)
-  scroll:EnableMouseWheel(true)
-  scroll:SetScript("OnMouseWheel", function(self, delta)
-    local max = self:GetVerticalScrollRange() or 0
-    local cur = (self:GetVerticalScroll() or 0) - delta * 20
-    self:SetVerticalScroll(math.max(0, math.min(max, cur)))
-  end)
-  scroll:SetScript("OnMouseDown", function() edit:SetFocus() end)
-  box.edit = edit
-  box.close = ns.UI.FlatButton(box, 100, 24, L["Close"])
-  box.close:SetPoint("BOTTOMRIGHT", box, "BOTTOMRIGHT", -12, 12)
-  box.close:SetScript("OnClick", function() box:Hide() end)
-  box.select = ns.UI.FlatButton(box, 140, 24, L["Select all"])
-  box.select:SetPoint("BOTTOMLEFT", box, "BOTTOMLEFT", 12, 12)
-  box.select:SetScript("OnClick", function() edit:SetFocus() edit:HighlightText() end)
-  if type(UISpecialFrames) == "table" then table.insert(UISpecialFrames, "GuildonCraftsCopyBox") end
-  box:Hide()
-end
-
 function ns.ShowCopyBox(title, hint, text)
-  if not box then BuildBox() end
-  box.text = text or ""
-  box.title:SetText(title or "")
-  box.hint:SetText(hint or "")
-  box.edit:SetText(box.text)
-  box:Show()
-  box.edit:SetFocus()
-  box.edit:HighlightText()
-  return box
+  return ns.Kit.ShowCopy(title, hint, text, { selectAll = L["Select all"], close = L["Close"] })
 end
 
-function ns.CopyBox() return box end -- (tests)
+function ns.CopyBox() return ns.Kit._copy end -- (tests)
 
 function ns.ShowExport()
   local text, n = ns.ExportText()

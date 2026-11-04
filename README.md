@@ -1,4 +1,4 @@
-# Guildon: Crafts & Recipes 1.1.0 (WoW Forever und WoW Classic Era)
+# Guildon: Crafts & Recipes 1.2.0 (WoW Forever und WoW Classic Era)
 
 Handwerk der Gilde: Berufe und Rezepte der Gilde, Wunschliste mit Aufträgen, Hilfe bei Handel und Post, geteilte Auktionspreise
 und profitable Rezepte. Teil von Guildon, den Addons für die Gilde; bis Guildon 0.8 war es der Berufsteil von Guildon. Alle Guildon-Teile teilen sich
@@ -12,7 +12,7 @@ Guildon Crafts und zeigt dann die Berufe im Mitglieder-Tooltip.
 
 ## Von Guildon 0.8 kommend
 - Beim ersten Start übernimmt Guildon Crafts aus Guildon deine Berufe, Rezepte, Wünsche und Aufträge, Preise, Abklingzeiten, gesuchte
-  Rezepte, den Dankzähler, die Berufs-Optionen und die Fensterlage. Guildons Daten bleiben, wie sie sind.
+  Rezepte, den Dankzähler und die Berufs-Optionen. Guildons Daten bleiben, wie sie sind.
 - Mitglieder, die noch Guildon 0.8 haben, sieht Guildon Crafts weiter: es liest ihre Berufe und Wünsche mit und schickt ihnen deine.
 
 ## Funktionen
@@ -38,6 +38,7 @@ Guildon Crafts und zeigt dann die Berufe im Mitglieder-Tooltip.
 ## Befehle
 - `/gnc` (oder `/guildoncrafts`) Fenster zeigen oder ausblenden (auch über den Knopf an der Minikarte)
 - `/gnc wishes` Wunschliste
+- `/gnc options` alle Einstellungen im gemeinsamen Optionsfenster der Don-Addons (auch das Zahnrad im Fenster)
 - `/gnc sync` die Gilde jetzt nach neuen Daten fragen
 - `/gnc demo` Beispielgilde (nochmal: aus)
 - `/gnc export` deine Berufe als Text für die Gildenseite
