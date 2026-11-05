@@ -1,5 +1,8 @@
 # Changes
 
+## 1.2.1
+- **Surnames on WoW Forever:** your own name and your trade partner's name are now recognised with a surname.
+
 ## 1.2.0
 - **Narrow profession bar:** Professions and Recipes show the professions as a narrow bar of symbols (name and online / in the guild in the tooltip). The recipe card stays beside the recipe list down to a window of about 770 px instead of covering it.
 - **The Don look:** the window you can drag from 720x420 to 1300x900 with the shared look of the Don addons: Overview, Professions and Recipes with the profession bar, crafters with skill bar (click to whisper), a focus card with reagents, wish list with chips and status, the wish form as a dialog, Profitable as a table. Item tooltips and quality colours in all lists.

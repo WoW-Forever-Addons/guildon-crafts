@@ -17,17 +17,33 @@ local function Realm()
   return r and r:gsub("[%s%-]", "") or "?"
 end
 
-function ns.FullName(name)
+-- (05.11.2026, Daniel's chat: "kein Spieler mit dem Namen 'Mairi Wipeborn-Wipeborn' online") WoW Forever shows
+-- surnames: UnitName("player") and chat lines may give "Mairi Wipeborn", while the roster and addon messages say
+-- "Mairi-Wipeborn". A character name has no space, so everything from the first space on is the surname and goes.
+function ns.PlainName(name)
   name = ns.Str(name)
+  if not name then return nil end
+  local base, rest = name:match("^([^%-]*)(.*)$")
+  base = base:match("^%s*(%S+)") or base
+  return base .. rest
+end
+
+function ns.FullName(name)
+  name = ns.PlainName(name)
   if not name then return nil end
   if name:find("-", 1, true) then return name end
   return name .. "-" .. Realm()
 end
 
+-- (05.11.2026, Daniel: "man sieht sich selber auf der karte") kept only once the realm is known: a name with "-?" from
+-- an early call never matched the own messages again, so the player's own position came back as a member's
 function ns.MyName()
   if not myName then
-    local n = ns.Str(ns.Call(UnitName, "player"))
-    if n then myName = n .. "-" .. Realm() end
+    local n = ns.PlainName(ns.Call(UnitName, "player"))
+    if not n then return nil end
+    local r = Realm()
+    if r == "?" then return n .. "-?" end
+    myName = n .. "-" .. r
   end
   return myName
 end
@@ -99,6 +115,10 @@ local function Rebuild()
     now[m.name] = m.online
     if m.online and wasOnline[m.name] == false and not first and ns.OnMemberOnline and m.name ~= ns.MyName() then
       ns.SafeCall("member online", ns.OnMemberOnline, m.name)
+    end
+    -- (04.11.2026) and who just went offline (Guildon's map takes him off at once)
+    if not m.online and wasOnline[m.name] == true and ns.OnMemberOffline and m.name ~= ns.MyName() then
+      ns.SafeCall("member offline", ns.OnMemberOffline, m.name)
     end
   end
   wasOnline = now
