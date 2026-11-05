@@ -544,10 +544,8 @@ end
 
 -- trade: the partner is the "NPC" unit while the trade window is open
 ns.On("TRADE_SHOW", function()
-  local name, realm = ns.Call(UnitName, "NPC")
-  name = ns.PlainName(name) -- (05.11.2026) without a Forever surname
-  if not name then return end
-  local full = ns.FullName(realm and ns.Str(realm) and (name .. "-" .. realm) or name)
+  local full = ns.UnitFull("NPC") -- (05.11.2026) on Forever with the surname
+  if not full then return end
   Open("trade", full)
 end)
 ns.On("TRADE_PLAYER_ITEM_CHANGED", function() if state.mode == "trade" then ns.After(0.1, ns.PaintBar) end end)
@@ -607,9 +605,7 @@ local function NoteTrade()
   end
 end
 ns.On("TRADE_SHOW", function()
-  local name, realm = ns.Call(UnitName, "NPC")
-  name = ns.PlainName(name) -- (05.11.2026) without a Forever surname
-  tradePartner = name and ns.FullName(realm and ns.Str(realm) and (name .. "-" .. realm) or name) or nil
+  tradePartner = ns.UnitFull("NPC") -- (05.11.2026) on Forever with the surname
   tradeGot = {}
 end)
 ns.On("TRADE_TARGET_ITEM_CHANGED", NoteTrade)

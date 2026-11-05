@@ -9,44 +9,56 @@ local members, byName = {}, {}
 local lastRequest, rebuildPending = -100, false
 local myName
 
+-- (05.11.2026, Daniel's /gn names on WoW Forever) Forever has surnames (C_PlayerInfo.ShouldDisplaySurname() true):
+-- UnitName and UnitFullName give the surname where other clients give the realm ("Mae", "Wipeborn"), the roster and the
+-- senders of addon messages give "Elfi Crowsong" and "Ratloff Ashbloom" (first name, space, surname, no realm), and a
+-- whisper needs that whole name ("/w Ratloff Ashbloom" works). The realm is GetNormalizedRealmName()
+-- ("CAMWOWEU4Realm7PvE"). So a member is "<first> <surname>-<realm>" there, shown and whispered as "<first> <surname>".
+local function Surnames()
+  return C_PlayerInfo ~= nil and type(C_PlayerInfo.ShouldDisplaySurname) == "function"
+    and ns.Call(C_PlayerInfo.ShouldDisplaySurname) == true
+end
+ns.Surnames = Surnames
+
 local function Realm()
-  local _, r = ns.Call(UnitFullName, "player")
-  r = ns.Str(r)
+  local r
+  if not Surnames() then
+    local _, rr = ns.Call(UnitFullName, "player")
+    r = ns.Str(rr)
+  end
   if not r then r = ns.Str(ns.Call(GetNormalizedRealmName)) end
   if not r then r = ns.Str(ns.Call(GetRealmName)) end
   return r and r:gsub("[%s%-]", "") or "?"
 end
 
--- (05.11.2026, Daniel's chat: "kein Spieler mit dem Namen 'Mairi Wipeborn-Wipeborn' online") WoW Forever shows
--- surnames: UnitName("player") and chat lines may give "Mairi Wipeborn", while the roster and addon messages say
--- "Mairi-Wipeborn". A character name has no space, so everything from the first space on is the surname and goes.
-function ns.PlainName(name)
+function ns.FullName(name)
   name = ns.Str(name)
   if not name then return nil end
-  local base, rest = name:match("^([^%-]*)(.*)$")
-  base = base:match("^%s*(%S+)") or base
-  return base .. rest
-end
-
-function ns.FullName(name)
-  name = ns.PlainName(name)
-  if not name then return nil end
+  name = name:gsub("^%s+", ""):gsub("%s+$", "")
   if name:find("-", 1, true) then return name end
   return name .. "-" .. Realm()
 end
 
--- (05.11.2026, Daniel: "man sieht sich selber auf der karte") kept only once the realm is known: a name with "-?" from
--- an early call never matched the own messages again, so the player's own position came back as a member's
+-- the full name of a unit ("player", "NPC" in a trade, "target"): on Forever with the surname
+function ns.UnitFull(unit)
+  local n, r = ns.Call(UnitName, unit)
+  n, r = ns.Str(n), ns.Str(r)
+  if not n then return nil end
+  if Surnames() then return ns.FullName(r and (n .. " " .. r) or n) end
+  return ns.FullName(r and (n .. "-" .. r) or n)
+end
+
+-- kept only once the realm is known: a name with "-?" from an early call never matched the own messages again
 function ns.MyName()
   if not myName then
-    local n = ns.PlainName(ns.Call(UnitName, "player"))
-    if not n then return nil end
-    local r = Realm()
-    if r == "?" then return n .. "-?" end
-    myName = n .. "-" .. r
+    local full = ns.UnitFull("player")
+    if not full then return nil end
+    if full:sub(-2) == "-?" then return full end
+    myName = full
   end
   return myName
 end
+function ns.ForgetMyName() myName = nil end -- (tests)
 
 function ns.ShortName(full)
   full = tostring(full or "")
@@ -178,7 +190,62 @@ end
 
 ns.On("GUILD_ROSTER_UPDATE", RosterChanged)
 ns.On("PLAYER_GUILD_UPDATE", function() ns.RequestRoster(true) RosterChanged() end)
-ns.On("PLAYER_LOGIN", function() ns.RequestRoster(true) RosterChanged() end)
+-- (05.11.2026) once on WoW Forever: the own characters were kept as "Mae-Wipeborn" (first name, the surname taken for
+-- the realm); now "Mae Wipeborn-<realm>". Every key and text of the saved data that names one of them is renamed
+-- (characters, sets, professions, wishes "<owner>#<id>", alts "1;A;B"); an entry under the new name wins. Other
+-- members' data under old names is dropped later as non-members and comes again from the guild.
+local function Swap(v, map)
+  if type(v) ~= "string" then return v end
+  for old, new in pairs(map) do
+    local from = 1
+    while true do
+      local a, b = v:find(old, from, true)
+      if not a then break end
+      local before, after = v:sub(a - 1, a - 1), v:sub(b + 1, b + 1)
+      if (a == 1 or not before:find("[%w%-]")) and not after:find("[%w%-]") then
+        v = v:sub(1, a - 1) .. new .. v:sub(b + 1)
+        from = a + #new
+      else
+        from = b + 1
+      end
+    end
+  end
+  return v
+end
+local function Rename(t, map, depth)
+  if depth > 12 then return end
+  local moves = {}
+  for k, v in pairs(t) do
+    if type(v) == "table" then Rename(v, map, depth + 1)
+    elseif type(v) == "string" then local nv = Swap(v, map) if nv ~= v then t[k] = nv end end
+    local nk = Swap(k, map)
+    if nk ~= k then moves[#moves + 1] = k end
+  end
+  for _, k in ipairs(moves) do
+    local nk = Swap(k, map)
+    if t[nk] == nil then t[nk] = t[k] end
+    t[k] = nil
+  end
+end
+function ns.MigrateSurnames()
+  local db = ns.db
+  if type(db) ~= "table" or db.surnames == 1 or not Surnames() then return false end
+  local realm = Realm()
+  if realm == "?" then return false end
+  local map, any = {}, false
+  for key in pairs(type(db.chars) == "table" and db.chars or {}) do
+    local first, sur = tostring(key):match("^([^%s%-]+)%-([^%s%-]+)$")
+    if first and sur ~= realm then map[key] = first .. " " .. sur .. "-" .. realm any = true end
+  end
+  if any then Rename(db, map, 0) end
+  db.surnames = 1
+  return true
+end
+
+ns.On("PLAYER_LOGIN", function()
+  ns.SafeCall("surnames", ns.MigrateSurnames)
+  ns.RequestRoster(true) RosterChanged()
+end)
 ns.On("PLAYER_ENTERING_WORLD", function() ns.RequestRoster() end)
 
 function ns.RebuildRoster() Rebuild() end -- (tests)

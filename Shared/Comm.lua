@@ -62,6 +62,8 @@ local function Key(kind, owner) return kind .. ":" .. owner end
 local function RawSend(msg, chat, target, prefix)
   local fn = C_ChatInfo and C_ChatInfo.SendAddonMessage or SendAddonMessage
   if type(fn) ~= "function" then return false end
+  -- (05.11.2026) a whisper on the own realm goes to the name alone ("Ratloff Ashbloom" on Forever, as the game wants it)
+  if chat == "WHISPER" and target and ns.Surnames and ns.Surnames() then target = ns.ShortName(target) end
   local ok, res = pcall(fn, prefix or ns.PREFIX, msg, chat, target)
   if not ok then return false end
   -- Forever (Retail) returns Enum.SendAddonMessageResult (0 = success), older clients true/false or nothing
@@ -380,6 +382,7 @@ local function N(v) return tonumber(v) end
 -- short messages of other parts (map positions): ns.MSG[tag] = function(sender, rest, chat); they may also come by
 -- PARTY or RAID (positions shared only with the group)
 ns.MSG = ns.MSG or {}
+ns.rawSenders = { n = 0 }
 local CHATS = { GUILD = true, WHISPER = true, PARTY = true, RAID = true, INSTANCE_CHAT = true }
 
 function ns.Receive(prefix, text, chat, sender)
@@ -387,6 +390,9 @@ function ns.Receive(prefix, text, chat, sender)
   if (prefix ~= ns.PREFIX and not legacy) or type(text) ~= "string" or #text > 255 then return end
   if not CHATS[chat] then return end
   local group = chat ~= "GUILD" and chat ~= "WHISPER"
+  -- (05.11.2026) /gn names: the last senders as the game gives them (WoW Forever's surnames)
+  local raw = ns.rawSenders
+  if type(sender) == "string" and not raw[sender] and raw.n < 8 then raw.n = raw.n + 1 raw[sender] = chat raw[raw.n] = sender end
   sender = ns.FullName(sender)
   if not sender or sender == ns.MyName() or not ns.IsMember(sender) or ns.IsDemo(sender) then return end
   stats.received = stats.received + 1

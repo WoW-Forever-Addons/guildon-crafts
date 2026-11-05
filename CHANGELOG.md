@@ -1,5 +1,8 @@
 # Changes
 
+## 1.2.2
+- **Surnames on WoW Forever, done right:** crafters, wishes and trade partners are shown and whispered with first name and surname. Your own professions and wishes keep their data (moved once to the new names).
+
 ## 1.2.1
 - **Surnames on WoW Forever:** your own name and your trade partner's name are now recognised with a surname.
 
