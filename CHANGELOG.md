@@ -1,5 +1,8 @@
 # Changes
 
+## 1.2.3
+- **Hidden surnames on WoW Forever:** with surnames turned off in the game's options, crafters and trade partners are whispered with their right name again.
+
 ## 1.2.2
 - **Surnames on WoW Forever, done right:** crafters, wishes and trade partners are shown and whispered with first name and surname. Your own professions and wishes keep their data (moved once to the new names).
 

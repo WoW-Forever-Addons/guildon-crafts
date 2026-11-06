@@ -14,15 +14,28 @@ local myName
 -- senders of addon messages give "Elfi Crowsong" and "Ratloff Ashbloom" (first name, space, surname, no realm), and a
 -- whisper needs that whole name ("/w Ratloff Ashbloom" works). The realm is GetNormalizedRealmName()
 -- ("CAMWOWEU4Realm7PvE"). So a member is "<first> <surname>-<realm>" there, shown and whispered as "<first> <surname>".
-local function Surnames()
+-- (05.11.2026, Siyo) with the surnames hidden in the game's options ShouldDisplaySurname() is false, yet UnitFullName still
+-- gives the surname in the realm's place and the roster and the senders still say "Siyo Fren": the surname became the
+-- realm ("Rectan Buckhammer-Fren") and whispers failed ("no player named ..."). So a client that knows the function counts
+-- as one with surnames also when the second value of UnitFullName is not the own realm; its realm never comes from there.
+local function SurnameClient()
   return C_PlayerInfo ~= nil and type(C_PlayerInfo.ShouldDisplaySurname) == "function"
-    and ns.Call(C_PlayerInfo.ShouldDisplaySurname) == true
+end
+local function RealmKey(s) s = ns.Str(s) return s and (s:gsub("[%s%-]", "")) or nil end
+local function Surnames()
+  if not SurnameClient() then return false end
+  if ns.Call(C_PlayerInfo.ShouldDisplaySurname) == true then return true end
+  local _, second = ns.Call(UnitFullName, "player")
+  second = RealmKey(second)
+  local realm = RealmKey(ns.Call(GetNormalizedRealmName)) or RealmKey(ns.Call(GetRealmName))
+  if not second or not realm then return false end
+  return second ~= realm and second ~= RealmKey(ns.Call(GetRealmName))
 end
 ns.Surnames = Surnames
 
 local function Realm()
   local r
-  if not Surnames() then
+  if not SurnameClient() then
     local _, rr = ns.Call(UnitFullName, "player")
     r = ns.Str(rr)
   end

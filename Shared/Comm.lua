@@ -396,6 +396,13 @@ function ns.Receive(prefix, text, chat, sender)
   sender = ns.FullName(sender)
   if not sender or sender == ns.MyName() or not ns.IsMember(sender) or ns.IsDemo(sender) then return end
   stats.received = stats.received + 1
+  -- (05.11.2026, Daniel: "Mit Guildon" 2, the map 2 more) any message under the own prefix shows the addon: a member
+  -- online before us greeted before our login, and his whispered answer to our hello may never come (Guildon 0.11.0
+  -- on Forever whispered to "<first> <surname>-<surname>"), while his map positions in the guild channel do
+  if not legacy then
+    local peer = ns.db.peers[sender]
+    if peer then peer.t = time() else ns.db.peers[sender] = { v = "", t = time() } end
+  end
   local tag, rest = text:match("^(%u):(.*)$")
   if group then
     if tag and ns.MSG[tag] and not legacy then ns.SafeCall("msg " .. tag, ns.MSG[tag], sender, rest, chat) end
