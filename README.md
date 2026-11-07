@@ -1,4 +1,4 @@
-# Guildon: Crafts & Recipes 1.2.3 (WoW Forever und WoW Classic Era)
+# Guildon: Crafts & Recipes 1.2.4 (WoW Forever und WoW Classic Era)
 
 Handwerk der Gilde: Berufe und Rezepte der Gilde, Wunschliste mit Aufträgen, Hilfe bei Handel und Post, geteilte Auktionspreise
 und profitable Rezepte. Teil von Guildon, den Addons für die Gilde; bis Guildon 0.8 war es der Berufsteil von Guildon. Alle Guildon-Teile teilen sich

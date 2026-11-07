@@ -1,5 +1,8 @@
 # Changes
 
+## 1.2.4
+- **More recipes on WoW Forever:** 85 recipes seen in the game added (alchemy, engineering, cooking, first aid), 197 recipes now show their reagents and 20 make the right number of items.
+
 ## 1.2.3
 - **Hidden surnames on WoW Forever:** with surnames turned off in the game's options, crafters and trade partners are whispered with their right name again.
 
