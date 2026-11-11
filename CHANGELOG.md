@@ -1,5 +1,8 @@
 # Changes
 
+## 1.2.5
+- **Recipes for WoW Forever build 70888:** 27 recipes added and 5 the game no longer has removed; cooking recipes now name their trainer or recipe item on WoW Forever.
+
 ## 1.2.4
 - **More recipes on WoW Forever:** 85 recipes seen in the game added (alchemy, engineering, cooking, first aid), 197 recipes now show their reagents and 20 make the right number of items.
 
