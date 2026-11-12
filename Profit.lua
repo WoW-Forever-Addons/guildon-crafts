@@ -99,6 +99,9 @@ local function Entries()
   for i = 1, math.min(#rows, 300) do
     local r = rows[i]
     local name = ns.SpellName(r.spell) or L["Recipe %d"]:format(r.spell)
+    -- (Daniel 11.11.2026) a recipe with a cooldown says so: its profit is not one per craft in a row
+    local cdText = ns.RecipeCooldownText and ns.RecipeCooldownText(r.spell)
+    if cdText then name = name .. " (" .. cdText .. ")" end
     local good = r.profit > 0
     local itemID, quality = ns.RecipeItemQuality(r.info)
     out[#out + 1] = { kind = "table", key = r.spell, spell = r.spell, row = r, icon = ns.RecipeIcon(r.spell, r.info), dim = #r.crafters == 0,
@@ -129,6 +132,8 @@ local function FillDetail(d, spell)
   d:SetActions(acts)
   d:Begin()
   if t then d:Line(L["Price from"], Kit.C.muted, ns.UI.AgeText(t), Kit.C.quiet) end
+  local cdText = ns.RecipeCooldownText and ns.RecipeCooldownText(spell)
+  if cdText then d:Line(L["Cooldown"], Kit.C.muted, cdText, Kit.C.title) end
   d:Section(L["Reagents: price and in your bags"])
   for _, rg in ipairs(info.reagents or {}) do
     local rp = ns.Price(rg[1])

@@ -1,4 +1,4 @@
-local Style = LibStub("DonCore-1.0"):NewModule("Style", 14)
+local Style = LibStub("DonCore-1.0"):NewModule("Style", 18)
 
 ---------------------------------------------------------------------------
 -- Style kit, DonCore module "Style" (minor 5; Style.VERSION = 3 is the kit's own version), see DESIGN.md.
@@ -23,6 +23,21 @@ local Style = LibStub("DonCore-1.0"):NewModule("Style", 14)
 -- ohne lesbar sein"). (minor 13) a fitted text that gets the plain outline stays inside the room it was fitted to.
 -- (minor 14, 11.11.2026, CurseForge t0tal) a dragged panel is saved hanging at its top edge, so a list that changes its
 -- height grows downwards, not around the screen point the game picked; older saved places are moved up once.
+-- (minor 15, 11.11.2026, Profitdon, Daniel's pictures 122028 ff.: tabs "Herst...", first row and some heads 1.6 times too
+-- big after the game window had changed its size) FitText no longer sets the font on the text itself (such a text kept its
+-- old pixel size when the resolution changed, texts on a font object followed): one shared font object per file, size
+-- and flags (Style.FitFont), colour, shadow and alignment of the text are kept.
+-- (minor 18, 12.11.2026, Daniel's picture of a quest title on two lines in the game look: "bei einer zweiten zeile gerne
+-- so eingerückt, dass es mit der oberen am gleichen punkt anfängt") row:SetLead(text): a short text in front of a plain
+-- row's text (a dot, "[26]"); the text starts after it and its further lines start there too
+-- (minor 17, 12.11.2026, Daniel's pictures of the game look on the laptop: "schrift sehr groß und schrift schlecht lesbar",
+-- one distance and one title bigger than the others) row:SetMain forgets the size FitText kept from the row's other font
+-- (a reused row kept the big or the small size of its former use); the game look's texts get the thin outline of a
+-- plain panel besides the shadow (Daniel chose it: readable on bright ground)
+-- (minor 16, 12.11.2026, Questdon, Daniel: the quest list as an option "mehr wie blizzards eigene ... direkt in das spiel
+-- ui passt") panel:SetGameLook(on): a panel that reads like the game's own lists: no background and frame (as with the
+-- chrome hidden), no mark and no line in the head, the title in the game's gold, the texts with the game's shadow and no
+-- outline. panel:SetButtonsFaded(on): the head's buttons invisible (still clickable) but the fold button.
 ---------------------------------------------------------------------------
 if not Style then return end -- the same or a newer Style is loaded already
 
@@ -235,9 +250,45 @@ local function BaseFont(fs)
   return base
 end
 
+Style.fitFonts = Style.fitFonts or {}
+function Style.FitFont(path, size, flags)
+  flags = flags or ""
+  local key = tostring(path) .. "\0" .. tostring(size) .. "\0" .. tostring(flags)
+  local f = Style.fitFonts[key]
+  if f == nil then
+    f = false
+    if type(CreateFont) == "function" then
+      local n, name = 0
+      repeat n = n + 1 name = "DonStyleFitFont" .. n until not _G[name]
+      local ok, obj = pcall(CreateFont, name)
+      if ok and obj and Call(obj, "SetFont", path, size, flags) then f = obj end
+    end
+    Style.fitFonts[key] = f
+  end
+  return f or nil
+end
+
 local function SetSize(fs, base, size)
   if fs._fitSize ~= size then
-    Call(fs, "SetFont", base[1], size, base[3])
+    local fo = fs.SetFontObject and Style.FitFont(base[1], size, base[3])
+    if fo then
+      -- a font object brings its own colour, shadow and alignment: keep the text's
+      local okC, r, g, b, a = Call(fs, "GetTextColor")
+      local okO, sx, sy = Call(fs, "GetShadowOffset")
+      local okS, sr, sg, sb, sa = Call(fs, "GetShadowColor")
+      local okH, jh = Call(fs, "GetJustifyH")
+      local okV, jv = Call(fs, "GetJustifyV")
+      local okP, sp = Call(fs, "GetSpacing")
+      if not Call(fs, "SetFontObject", fo) then Call(fs, "SetFont", base[1], size, base[3]) end
+      if okC and type(r) == "number" then Call(fs, "SetTextColor", r, g, b, a) end
+      if okO and type(sx) == "number" then Call(fs, "SetShadowOffset", sx, sy) end
+      if okS and type(sr) == "number" then Call(fs, "SetShadowColor", sr, sg, sb, sa) end
+      if okH and type(jh) == "string" then Call(fs, "SetJustifyH", jh) end
+      if okV and type(jv) == "string" then Call(fs, "SetJustifyV", jv) end
+      if okP and type(sp) == "number" then Call(fs, "SetSpacing", sp) end
+    else
+      Call(fs, "SetFont", base[1], size, base[3])
+    end
     fs._fitSize = size
   end
 end
@@ -952,6 +1003,18 @@ local function RowLayout(row, width)
   else
     row.icon:Hide()
   end
+  -- (minor 18) the lead: the text and its further lines start after it
+  if row.lead then
+    if row._leadSet then
+      row.lead:ClearAllPoints()
+      row.lead:SetPoint("TOPLEFT", row, "TOPLEFT", left, -textY)
+      row.lead:Show()
+      local lw = TextWidth(row.lead)
+      left = left + lw + max(3, floor(size * 0.3 + 0.5))
+    else
+      row.lead:Hide()
+    end
+  end
   local inner = max(16, width - left - right)
   local vw, vh = 0, 0
   if HasText(row.value) then
@@ -1196,7 +1259,7 @@ function Style.Relayout(panel)
   panel:SetHeight((panel._headerH or S.header) + y)
   if Style.PanelTop then Style.PanelTop(panel) end
   FinishHover(panel)
-  if panel._chromeHidden then Style.PlainText(panel, true) end
+  if panel._chromeHidden then Style.PlainText(panel, true) end -- (minor 17) the game look with the outline too
   if allOk then
     panel._retries = 0
   else
@@ -1371,6 +1434,9 @@ function RowMethods:SetMain(main)
   if _G[t] then
     Call(self.text, "SetFontObject", _G[t])
     Call(self.value, "SetFontObject", _G[t])
+    if self.lead then Call(self.lead, "SetFontObject", _G[t]) end
+    -- (minor 17) the other font: what FitText remembered of the old one (its size as the base, the last fit) is void
+    for _, fs in ipairs({ self.text, self.value }) do fs._fitBase, fs._fitSize, fs._fitKey, fs._fitDone = nil, nil, nil, nil end
   end
   Changed(self)
   return self
@@ -1439,6 +1505,24 @@ function RowMethods:SetValueWidth(v, fixed)
   return self
 end
 
+-- (minor 18) a lead in front of the text of a plain row (colour codes in the text itself); nil or "" takes it away
+function RowMethods:SetLead(text)
+  text = text ~= nil and tostring(text) or ""
+  if text == "" and not self.lead then return self end
+  if not self.lead then
+    self.lead = NewFont(self, "GameFontHighlightSmall", "textPrimary")
+    local fo = self.text:GetFontObject()
+    if fo then Call(self.lead, "SetFontObject", fo) end
+    Call(self.lead, "SetWordWrap", false)
+  end
+  if (self.lead:GetText() or "") ~= text or (self._leadSet or false) ~= (text ~= "") then
+    self.lead:SetText(text)
+    self._leadSet = text ~= "" or nil
+    Changed(self)
+  end
+  return self
+end
+
 function RowMethods:SetIndent(px)
   px = tonumber(px) or 0
   if px == (self._indent or 0) then return self end
@@ -1467,6 +1551,7 @@ local function RowReset(row)
   row._iconSet = false; row.icon:Hide()
   row._iconKey, row._iconAtlas, row._iconTC = nil, nil, nil
   row._indent, row._gapBefore = 0, nil
+  if row.lead then row._leadSet = nil row.lead:SetText("") row.lead:Hide() end
   row._kv, row._keep, row._ttAnchor = nil, nil, nil
   row._valueMax, row._valueFixed = nil, nil
   if row.badge then
@@ -1956,7 +2041,7 @@ local function DonAlpha(self, alpha, plain)
   end
   for _, t in ipairs(self._donLines or {}) do Tint(t, DON.gold, frameA) end
   Tint(self._headerBg, DON.panel, plain and 0 or (alpha >= 0.35 and min(1, alpha + 0.08) or alpha))
-  Tint(self._divider, DON.gold, plain and 0.5 or max(0.5, frameA))
+  Tint(self._divider, DON.gold, self._game and 0 or plain and 0.5 or max(0.5, frameA))
   if self._logoEdge then for _, t in ipairs(self._logoEdge) do Tint(t, DON.gold, 1) end end
 end
 
@@ -2011,7 +2096,13 @@ local function PlainFont(fs, on)
   if not (ok and path and size) then return end
   flags = flags or ""
   if on then
-    if not flags:find("OUTLINE", 1, true) then
+    if on == "shadow" then
+      -- (minor 16) the game look: the font's own flags (no outline), only the shadow and the lighter grey below
+      if fs._plainFlags then
+        pcall(fs.SetFont, fs, path, size, fs._plainFlags)
+        fs._plainFlags = nil
+      end
+    elseif not flags:find("OUTLINE", 1, true) then
       fs._plainFlags = flags
       pcall(fs.SetFont, fs, path, size, flags ~= "" and (flags .. ",OUTLINE") or "OUTLINE")
       -- (minor 9, Daniel 02.11.2026: "..." where the level stood) the outline makes a text wider: one that FitText sized to
@@ -2067,12 +2158,12 @@ local function PlainWalk(frame, on, depth)
   end
 end
 function Style.PlainText(panel, on)
-  if panel then pcall(PlainWalk, panel, on and true or false, 0) end
+  if panel then pcall(PlainWalk, panel, on == "shadow" and on or (on and true or false), 0) end
 end
 
 function PanelMethods:SetChromeHidden(hidden)
   self._chromeHidden = hidden and true or false
-  Style.PlainText(self, self._chromeHidden)
+  Style.PlainText(self, self._chromeHidden) -- (minor 17) the game look with the outline too
   for _, b in ipairs(self._buttons or {}) do if b.SetPlain then b:SetPlain(self._chromeHidden) end end
   self:SetBackgroundAlpha(self._bgAlpha, true)
   -- (17.10., Daniel's screenshot: a thin frame, the step's box and gold bar stayed) the book look's two inner lines
@@ -2096,6 +2187,48 @@ function PanelMethods:SetGrip(grip)
   return self
 end
 function PanelMethods:IsChromeHidden() return self._chromeHidden == true end
+
+-- (minor 16) the game look, see the top of the file. It hides the chrome itself and shows it again when switched off
+-- unless plainAfter says the panel stays without background and frame.
+local GAME_GOLD = { 1, 0.82, 0 }
+function PanelMethods:SetGameLook(on, plainAfter)
+  on = on and true or false
+  if (self._game or false) ~= on then
+    self._game = on
+    local title = self._title
+    local okF, path, size, flags = pcall(title.GetFont, title)
+    if on then
+      if okF and path then
+        self._gameTitleFont = { path, size, flags }
+        pcall(title.SetFont, title, path, 14, "")
+      end
+      title:SetTextColor(GAME_GOLD[1], GAME_GOLD[2], GAME_GOLD[3], 1)
+    else
+      local f = self._gameTitleFont
+      if f then pcall(title.SetFont, title, f[1], f[2], f[3] or "") end
+      self._gameTitleFont = nil
+      local tc = self._look == "book" and BOOK.textPrimary or self._look == "don" and DON.hero or COLORS.textPrimary
+      title:SetTextColor(tc[1], tc[2], tc[3], 1)
+    end
+    if self._logo then
+      Call(self._logo, on and "Hide" or "Show")
+      for _, t in ipairs(self._logoEdge or {}) do Call(t, on and "Hide" or "Show") end
+      title:SetPoint("LEFT", self._header, "LEFT", on and S.titleX or (self._titleX or S.titleX), 0)
+    end
+  end
+  self:SetChromeHidden(on or plainAfter == true)
+  return self
+end
+function PanelMethods:IsGameLook() return self._game == true end
+function PanelMethods:SetButtonsFaded(faded)
+  faded = faded and true or false
+  if (self._buttonsFaded or false) == faded then return self end
+  self._buttonsFaded = faded
+  for _, b in ipairs(self._buttons or {}) do
+    if b ~= self._collapseButton then Call(b, "SetAlpha", faded and 0 or 1) end
+  end
+  return self
+end
 
 -- (minor 7) the panel keeps this height (nil: as high as its content); a content with opts.fill takes the rest
 function PanelMethods:SetFixedHeight(h)

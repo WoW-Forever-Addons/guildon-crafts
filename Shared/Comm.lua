@@ -82,6 +82,46 @@ local function Spend(prefix)
 end
 function ns.CommBudget(prefix) return budget[prefix or ns.PREFIX] end -- (tests)
 
+-- (12.11.2026, Daniel: yellow lines "No player named 'Brokk Wetterhahn' is currently playing." after a member logged
+-- out) whispers still waiting for him went out one by one. The game's "<name> has gone offline." and its first
+-- "No player named ..." mark him; waiting whispers to him go, new ones are not queued until he is heard again.
+local offline = {} -- full name -> true
+local function Purge(q, name)
+  for i = #q, 1, -1 do
+    if q[i].chat == "WHISPER" and q[i].target == name then table.remove(q, i) stats.dropped = stats.dropped + 1 end
+  end
+end
+function ns.CommOffline(name)
+  if not name or name == ns.MyName() then return end
+  offline[name] = true
+  Purge(queue, name) Purge(fast, name)
+  for key, p in pairs(pending) do if p.from == name then pending[key] = nil end end
+end
+function ns.CommIsOffline(name) return offline[name] == true end -- (tests)
+local offlinePatterns = {} -- the game's text -> its pattern
+local function Pattern(g)
+  if type(g) ~= "string" then return nil end
+  local pat = offlinePatterns[g]
+  if not pat then
+    pat = "^" .. g:gsub("[%^%$%(%)%%%.%[%]%*%+%-%?]", "%%%0"):gsub("%%%%s", "(.+)") .. "$"
+    offlinePatterns[g] = pat
+  end
+  return pat
+end
+ns.On("CHAT_MSG_SYSTEM", function(_, text)
+  if type(text) ~= "string" then return end
+  for i = 1, 2 do
+    local pat = Pattern(i == 1 and ERR_FRIEND_OFFLINE_S or ERR_CHAT_PLAYER_NOT_FOUND_S)
+    local who = pat and text:match(pat)
+    if who then
+      who = who:match("|h%[(.-)%]|h") or who
+      local full = ns.FullName(who)
+      if full and ns.IsMember(full) then ns.CommOffline(full) end
+      return
+    end
+  end
+end)
+
 local function Pump()
   local q = fast[1] and fast or queue
   local item = q[1]
@@ -93,6 +133,11 @@ local function Pump()
     return
   end
   table.remove(q, 1)
+  -- (12.11.2026) a whisper to someone who logged out is dropped (each one would print "No player named ...")
+  if item.chat == "WHISPER" and item.target and offline[item.target] then
+    stats.dropped = stats.dropped + 1
+    return Pump()
+  end
   if RawSend(item.msg, item.chat, item.target, item.prefix) then
     stats.sent = stats.sent + 1
   else
@@ -112,6 +157,7 @@ end
 function ns.Send(msg, chat, target, prefix)
   if type(msg) ~= "string" or #msg > 255 then return false end
   if chat == "GUILD" and not ns.InGuild() then return false end
+  if chat == "WHISPER" and target and offline[target] then return false end
   -- positions: never more than one waiting (the newest counts)
   local tag = msg:sub(1, 2)
   if tag == "P:" then
@@ -396,6 +442,7 @@ function ns.Receive(prefix, text, chat, sender)
   sender = ns.FullName(sender)
   if not sender or sender == ns.MyName() or not ns.IsMember(sender) or ns.IsDemo(sender) then return end
   stats.received = stats.received + 1
+  offline[sender] = nil -- heard again: whispers to him go out again
   -- (05.11.2026, Daniel: "Mit Guildon" 2, the map 2 more) any message under the own prefix shows the addon: a member
   -- online before us greeted before our login, and his whispered answer to our hello may never come (Guildon 0.11.0
   -- on Forever whispered to "<first> <surname>-<surname>"), while his map positions in the guild channel do

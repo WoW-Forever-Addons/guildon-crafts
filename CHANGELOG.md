@@ -1,5 +1,11 @@
 # Changes
 
+## 1.2.6
+- **Reagents from the WoW Forever client:** 708 recipes that showed no reagents now have them, and 123 are corrected (mostly enchanting); these recipes show reagents and cost at once.
+- **Guild cooldowns follow WoW Forever:** only the transmutes that share one cooldown count for "Transmute", Transmute: Legionite is among them.
+- **Profitable:** recipes with a cooldown of an hour or more show it behind the name and in the card.
+- **No more rows of "No player named ... is currently playing":** when a guild member logged out while the addon was still sending them data, the chat showed one yellow line per message, most often with the map open. Nothing is sent any more to a member who went offline.
+
 ## 1.2.5
 - **Recipes for WoW Forever build 70888:** 27 recipes added and 5 the game no longer has removed; cooking recipes now name their trainer or recipe item on WoW Forever.
 

@@ -20,11 +20,28 @@ local Style = ns.Style
 -- 1 Cooldowns
 ---------------------------------------------------------------------------
 -- key, label, spells (one shared cooldown), item (cooldown of an item), profession
+-- (Daniel 11.11.2026, Forever's client tables SpellCooldowns and SpellCategories, build 1.60.1.70888) on Forever Iron to
+-- Gold and Mithril to Truesilver have an own cooldown of one hour and are no longer in the shared one; a player who
+-- knew them was read by them. Forever: the spells of the shared category only, with Transmute: Legionite. Era as Classic.
 ns.COOLDOWNS = {
-  { key = "t", label = "Transmute", prof = 171, spells = { 11479, 11480, 17187, 17559, 17560, 17561, 17562, 17563, 17564, 17565, 17566 } },
+  { key = "t", label = "Transmute", prof = 171, spells = ns.ERA
+    and { 11479, 11480, 17187, 17559, 17560, 17561, 17562, 17563, 17564, 17565, 17566 }
+    or { 17187, 17559, 17560, 17561, 17562, 17563, 17564, 17565, 17566, 1317279 } },
   { key = "m", label = "Mooncloth", prof = 197, spells = { 18560 } },
   { key = "s", label = "Salt Shaker", prof = 165, item = 15846 },
 }
+
+-- [spell] = seconds: recipes with a cooldown of an hour or more (Forever: the client tables, Era: CMaNGOS classic-db);
+-- the tab Profitable names it, the profit of such a recipe comes once a day, not per craft
+ns.RECIPE_CD = ns.ERA and { [11479] = 86400, [11480] = 172800, [17187] = 172800, [17559] = 86400, [17560] = 86400, [17561] = 86400,
+    [17562] = 86400, [17563] = 86400, [17564] = 86400, [17565] = 86400, [17566] = 86400, [18560] = 345600, [22430] = 7200 }
+  or { [11479] = 3600, [11480] = 3600, [17187] = 169200, [17559] = 82800, [17560] = 82800, [17561] = 82800, [17562] = 82800,
+    [17563] = 82800, [17564] = 82800, [17565] = 82800, [17566] = 82800, [18560] = 342000, [22430] = 7200, [1317279] = 169200 }
+-- "23 h", nil without a cooldown
+function ns.RecipeCooldownText(spell)
+  local s = ns.RECIPE_CD[spell]
+  return s and ns.L["%d h"]:format(math.ceil(s / 3600)) or nil
+end
 
 local function Known(spell)
   local entry = (ns.db.prof or {})[ns.MyName() or ""]
@@ -74,13 +91,21 @@ function ns.ReadCooldowns()
     if cd.item then
       if ns.ItemCount(cd.item) > 0 then left = ItemLeft(cd.item) end
     else
+      -- the longest of the known spells: one shared cooldown shows the same on each, and a spell the game took out of
+      -- it does not hide the others
       for _, sp in ipairs(cd.spells) do
-        if Known(sp) then left = SpellLeft(sp) break end
+        local l = Known(sp) and SpellLeft(sp)
+        if l and (not left or l > left) then left = l end
       end
     end
     if left then parts[#parts + 1] = cd.key .. "," .. ns.B36(Ready(cd.key, left > 0 and now + left or 0, old)) end
   end
-  if #parts == 1 then return false end
+  -- nothing to share any more (11.11.2026: a player who only knows Iron to Gold on Forever): an older set is emptied, or
+  -- it would stand as "ready" for good
+  if #parts == 1 then
+    if own and next(old or {}) then return ns.SetOwn("cd", "1") end
+    return false
+  end
   return ns.SetOwn("cd", table.concat(parts, ";"))
 end
 
