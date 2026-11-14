@@ -1,4 +1,4 @@
-local Style = LibStub("DonCore-1.0"):NewModule("Style", 18)
+local Style = LibStub("DonCore-1.0"):NewModule("Style", 19)
 
 ---------------------------------------------------------------------------
 -- Style kit, DonCore module "Style" (minor 5; Style.VERSION = 3 is the kit's own version), see DESIGN.md.
@@ -27,6 +27,12 @@ local Style = LibStub("DonCore-1.0"):NewModule("Style", 18)
 -- big after the game window had changed its size) FitText no longer sets the font on the text itself (such a text kept its
 -- old pixel size when the resolution changed, texts on a font object followed): one shared font object per file, size
 -- and flags (Style.FitFont), colour, shadow and alignment of the text are kept.
+-- (minor 19, 13.11.2026, Daniel to the folded sections of Questdon's quest list, "+ 15" on the right: "das sieht auch noch
+-- nicht clean aus ... jede eigene quest einklappbar ... am besten links neben den quests. es soll ein optisch gut
+-- aussehender button sein, der dann auch für die reiter in der questliste selber funktionieren soll") one fold button
+-- for rows and headers, the game's own plus and minus button, on the left: row:SetFoldButton(open, fn) puts it in front
+-- of a row (a click calls fn(row), not the row's own click); a foldable header (hdr:SetFold) shows the same button in
+-- front of its text and, folded, its count behind it as "(15)". Nothing on the right any more.
 -- (minor 18, 12.11.2026, Daniel's picture of a quest title on two lines in the game look: "bei einer zweiten zeile gerne
 -- so eingerückt, dass es mit der oberen am gleichen punkt anfängt") row:SetLead(text): a short text in front of a plain
 -- row's text (a dot, "[26]"); the text starts after it and its further lines start there too
@@ -119,7 +125,7 @@ local S = {
   padX = 8, padY = 6,
   header = 20, titleX = 8, button = 14, buttonGap = 4, buttonRight = 4,
   rowGap = 2, section = 8,
-  icon = 14, iconGap = 4,
+  icon = 14, iconGap = 4, fold = 16,
   valueGap = 8,
   bar = 6,
   minWidth = 220,
@@ -595,6 +601,9 @@ local ICONS = {
   close    = { atlas = { "uitools-icon-close" },        file = "Interface\\Buttons\\UI-StopButton" },
   collapse = { atlas = { "uitools-icon-minimize" },     file = "Interface\\Buttons\\UI-MinusButton-Up" },
   expand   = { atlas = { "uitools-icon-plus" },         file = "Interface\\Buttons\\UI-PlusButton-Up" },
+  -- (minor 19) the fold button of rows and headers: the game's own plus and minus button in its own colours
+  foldOpen   = { atlas = {}, file = "Interface\\Buttons\\UI-MinusButton-Up", color = true },
+  foldClosed = { atlas = {}, file = "Interface\\Buttons\\UI-PlusButton-Up", color = true },
   options  = { atlas = { "QuestLog-icon-setting" },    file = "Interface\\Buttons\\UI-OptionsButton" },
   back     = { atlas = { "common-icon-backarrow" },     file = "Interface\\Buttons\\UI-SpellbookIcon-PrevPage-Up" },
   forward  = { atlas = { "common-icon-forwardarrow" },  file = "Interface\\Buttons\\UI-SpellbookIcon-NextPage-Up" },
@@ -930,6 +939,16 @@ local DON_ROW_H, BADGE_W, BADGE_H = 34, 28, 18
 local function DonRowLayout(row, width)
   local left = S.padX + (row._indent or 0) + (row._markSet and 3 or 0)
   local right = S.padX
+  if row.fold then -- (minor 19)
+    if row._foldSet then
+      row.fold:ClearAllPoints()
+      row.fold:SetPoint("LEFT", row, "LEFT", left, 0)
+      row.fold:Show()
+      left = left + S.fold + S.iconGap
+    else
+      row.fold:Hide()
+    end
+  end
   if row._badgeSet then
     row.badge:ClearAllPoints()
     row.badge:SetPoint("LEFT", row, "LEFT", left, 0)
@@ -994,6 +1013,17 @@ local function RowLayout(row, width)
   local right = S.padX
   local textY = 0
   local size = FontSize(row.text)
+  if row.fold then -- (minor 19) the fold button first, in the middle of the first line
+    if row._foldSet then
+      if S.fold > size then textY = floor((S.fold - size) / 2 + 0.5) end
+      row.fold:ClearAllPoints()
+      row.fold:SetPoint("TOPLEFT", row, "TOPLEFT", left, -max(0, floor((size - S.fold) / 2 + 0.5)))
+      row.fold:Show()
+      left = left + S.fold + S.iconGap
+    else
+      row.fold:Hide()
+    end
+  end
   if row._iconSet then
     row.icon:ClearAllPoints()
     row.icon:SetPoint("TOPLEFT", row, "TOPLEFT", left, 0)
@@ -1057,7 +1087,7 @@ local function RowLayout(row, width)
   row.text:SetPoint("TOPLEFT", row, "TOPLEFT", left, -textY)
   local th, okT = TextHeight(row.text)
   if not okT then ok = false end
-  local h = max(th + textY, vh, row._iconSet and S.icon or 0)
+  local h = max(th + textY, vh, row._iconSet and S.icon or 0, row._foldSet and S.fold or 0)
   if row.bar and row.bar._inUse then
     local bar = row.bar
     bar._px = row._panel and row._panel._px or 1
@@ -1076,19 +1106,41 @@ local function RowLayout(row, width)
 end
 
 local function HeaderLayout(hdr, width)
-  -- (18.10.) a foldable header keeps room on the right for "+"/"-" and its count
-  local vw = 0
-  if hdr.value and hdr._onFold then
-    hdr.value:ClearAllPoints()
-    hdr.value:SetPoint("TOPRIGHT", hdr, "TOPRIGHT", 0, 0)
-    vw = 48
-    hdr.value:SetWidth(vw)
+  -- (minor 19) a foldable header: the fold button in front, the text, and folded its count "(15)" right behind it
+  local x, fold = 0, hdr._onFold ~= nil
+  if fold and hdr.foldIcon then x = S.fold + S.iconGap end
+  local avail = max(width - x, 1)
+  local tw, cw = avail, 0
+  if fold and hdr.value and HasText(hdr.value) then
+    cw = TextWidth(hdr.value) + 2
+    tw = max(1, min(TextWidth(hdr.text) + 2, avail - cw - S.iconGap))
   end
-  hdr.text:SetWidth(max(width - vw, 1))
-  hdr.text:ClearAllPoints()
-  hdr.text:SetPoint("TOPLEFT", hdr, "TOPLEFT", 0, 0)
+  hdr.text:SetWidth(tw)
   local h, ok = TextHeight(hdr.text)
-  return max(h, 1), ok
+  local rowH = max(h, fold and hdr.foldIcon and S.fold or 1, 1)
+  local ty = floor((rowH - h) / 2 + 0.5)
+  hdr.text:ClearAllPoints()
+  hdr.text:SetPoint("TOPLEFT", hdr, "TOPLEFT", x, -ty)
+  if hdr.foldIcon then
+    if fold then
+      hdr.foldIcon:ClearAllPoints()
+      hdr.foldIcon:SetPoint("TOPLEFT", hdr, "TOPLEFT", 0, -floor((rowH - S.fold) / 2 + 0.5))
+      hdr.foldIcon:Show()
+    else
+      hdr.foldIcon:Hide()
+    end
+  end
+  if hdr.value then
+    if cw > 0 then
+      hdr.value:SetWidth(cw)
+      hdr.value:ClearAllPoints()
+      hdr.value:SetPoint("TOPLEFT", hdr, "TOPLEFT", x + tw + S.iconGap, -ty)
+      hdr.value:Show()
+    else
+      hdr.value:Hide()
+    end
+  end
+  return rowH, ok
 end
 
 local function BarItemLayout(bar, width)
@@ -1523,6 +1575,42 @@ function RowMethods:SetLead(text)
   return self
 end
 
+-- (minor 19) the fold button in front of a row: open (the minus) or folded (the plus); a click calls fn(row) and not
+-- the row's own click. fn nil takes the button away.
+function RowMethods:SetFoldButton(open, fn)
+  if type(fn) ~= "function" then
+    if self.fold and self._foldSet then
+      self._foldSet, self.fold._fn = nil, nil
+      self.fold:Hide()
+      Changed(self)
+    end
+    return self
+  end
+  if not self.fold then
+    local b = CreateFrame("Button", nil, self)
+    b:SetSize(S.fold, S.fold)
+    b.icon = b:CreateTexture(nil, "ARTWORK")
+    b.icon:SetAllPoints(b)
+    b.glow = b:CreateTexture(nil, "HIGHLIGHT")
+    b.glow:SetAllPoints(b)
+    b.glow:SetTexture("Interface\\Buttons\\UI-PlusButton-Hilight")
+    Call(b.glow, "SetBlendMode", "ADD")
+    Call(b, "RegisterForClicks", "LeftButtonUp")
+    b._row = self
+    b:SetScript("OnClick", function(btn) if btn._fn then Try("row.fold", btn._fn, btn._row) end end)
+    self.fold = b
+  end
+  open = open and true or false
+  self.fold._fn = fn
+  if self.fold._open ~= open or not self._foldSet then
+    self.fold._open = open
+    Style.SetIcon(self.fold.icon, open and "foldOpen" or "foldClosed")
+    self._foldSet = true
+    Changed(self)
+  end
+  return self
+end
+
 function RowMethods:SetIndent(px)
   px = tonumber(px) or 0
   if px == (self._indent or 0) then return self end
@@ -1552,6 +1640,7 @@ local function RowReset(row)
   row._iconKey, row._iconAtlas, row._iconTC = nil, nil, nil
   row._indent, row._gapBefore = 0, nil
   if row.lead then row._leadSet = nil row.lead:SetText("") row.lead:Hide() end
+  if row.fold then row._foldSet, row.fold._fn = nil, nil row.fold:Hide() end
   row._kv, row._keep, row._ttAnchor = nil, nil, nil
   row._valueMax, row._valueFixed = nil, nil
   if row.badge then
@@ -1670,18 +1759,22 @@ function Style.Header(panel, text)
       return self
     end
     function hdr:Release() Release(self) end
-    -- (18.10.) SetFold(open, count, fn): a click on the header calls fn(header, button); the right shows "-" while
-    -- open, "+ count" while folded. Every Header() call starts unfoldable again.
-    hdr.value = NewFont(hdr, "GameFontNormalLarge", "textPrimary") -- (18.10., Daniel: the "-" was hard to see) bigger and brighter; (20.10.) larger still
-    if hdr.value.SetJustifyH then hdr.value:SetJustifyH("RIGHT") end
+    -- (18.10.) SetFold(open, count, fn): a click on the header calls fn(header, button). (minor 19) the fold button
+    -- in front shows the state (minus: open, plus: folded); folded, the count stands behind the text as "(15)".
+    -- Every Header() call starts unfoldable again.
+    hdr.value = NewFont(hdr, "GameFontNormalSmall", "textSecondary")
+    if hdr.value.SetJustifyH then hdr.value:SetJustifyH("LEFT") end
+    hdr.foldIcon = hdr:CreateTexture(nil, "ARTWORK")
+    hdr.foldIcon:SetSize(S.fold, S.fold)
+    hdr.foldIcon:Hide()
     hdr:SetScript("OnMouseUp", function(self, button) if self._onFold then Try("header.fold", self._onFold, self, button) end end)
     function hdr:SetFold(open, count, fn)
       self._onFold = type(fn) == "function" and fn or nil
-      local t = self._onFold and (open and "\226\128\148" or ("+ " .. tostring(count or ""))) or ""
-      -- (20.10.) the long dash is large, the count next to a folded header normal
-      if self.value.SetFontObject then self.value:SetFontObject(open and "GameFontNormalLarge" or "GameFontNormal") end
-      if (self.value:GetText() or "") ~= t then self.value:SetText(t); Changed(self) end
-      self.value:SetShown(self._onFold ~= nil)
+      if self._onFold then self._open = open and true or false else self._open = nil end
+      local t = self._onFold and not open and count ~= nil and ("(" .. tostring(count) .. ")") or ""
+      if self._onFold then Style.SetIcon(self.foldIcon, open and "foldOpen" or "foldClosed") end
+      if (self.value:GetText() or "") ~= t then self.value:SetText(t) end
+      Changed(self)
       if self.EnableMouse then self:EnableMouse(self._onFold ~= nil) end
       return self
     end

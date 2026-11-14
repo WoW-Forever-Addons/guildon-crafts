@@ -1,5 +1,9 @@
 # Changes
 
+## 1.2.7
+- **More WoW Forever recipes:** 415 more recipes (2501 in all), from the newest All The Things and ForeverDB data and from recipes seen in the game, with their reagents; several reagent lists corrected.
+- **Cleaner text in narrow places:** text that is shrunk to fit keeps one font and size.
+
 ## 1.2.6
 - **Reagents from the WoW Forever client:** 708 recipes that showed no reagents now have them, and 123 are corrected (mostly enchanting); these recipes show reagents and cost at once.
 - **Guild cooldowns follow WoW Forever:** only the transmutes that share one cooldown count for "Transmute", Transmute: Legionite is among them.

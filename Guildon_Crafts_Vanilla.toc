@@ -3,7 +3,7 @@
 ## Notes: Part of Guildon for Classic Era: professions and recipes of the guild, wish list with orders, trade and mail help, shared auction prices and profitable crafts.
 ## Notes-deDE: Teil von Guildon auf Classic Era: Berufe und Rezepte der Gilde, Wunschliste mit Aufträgen, Hilfe bei Handel und Post, geteilte Auktionspreise und profitable Rezepte.
 ## Author: DonCoohd
-## Version: 1.2.6
+## Version: 1.2.7
 ## X-Curse-Project-ID: 1775548
 ## Category: Professions
 ## Category-deDE: Berufe
