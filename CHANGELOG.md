@@ -1,5 +1,13 @@
 # Changes
 
+## 1.3.1
+
+- **Recipe card:** search and filter buttons span the whole window, list and card sit below. The card closes with its X, a second click on the row or Esc (outside combat); without a choice the list takes the full width.
+- **Profession bar:** the symbols on the left show in full in the game's look.
+- **Wish form:** payment as three choices one under the other instead of overlapping buttons; the form is as high as its content.
+- **Recipe list:** a head "Recipe | Skill | Crafters" with tooltips; "Whisper" buttons shorten long names (full name in the tooltip); "?" instead of "0/0" for an unknown skill.
+- **Data of 18 November:** 21 new reagents.
+
 ## 1.3.0
 - **The game's look, out of the box:** the Crafts & Recipes window and all its pages, the wish form, the copy window and the bar at the mailbox use the game's own frame, tabs, buttons and lists, with the guild crest in the round portrait. Prefer the old look? Turn off "Windows in the game's look" in the options (tab Window); the change applies at once.
 - **Options in the game's settings:** all options are now pages under Options > AddOns > Guildon: Crafts & Recipes. The gear, `/gnc options` and the minimap menu open them there. What the game's settings cannot do, like the ranks allowed to delete, opens in the Don options window from a button. Needs a game restart once; without the game's templates (Classic Era) or with the option off, everything stays in the Don window as before.

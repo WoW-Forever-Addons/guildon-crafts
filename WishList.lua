@@ -41,6 +41,58 @@ local form
 local FORM_W = 440
 local LABEL_W = 120
 local ROW = S.button + S.gap
+-- (18.11.2026, Daniel's picture: the three payment buttons were far too narrow, the texts ran over each other) the payment
+-- is a choice of three lines under each other, a round button and the whole text each; a click on the line picks it
+local PAY_ROW = 22
+local PAY_H = 3 * PAY_ROW
+
+local function PayChoice(parent, items, get, set)
+  local c = CreateFrame("Frame", nil, parent)
+  c.fields = {}
+  function c:Paint()
+    for _, f in ipairs(self.fields) do
+      local on = f.value == self.value
+      f.radio:SetChecked(on)
+      local col = on and Kit.C.title or Kit.C.muted
+      f.text:SetTextColor(col[1], col[2], col[3])
+    end
+  end
+  function c:Update(v)
+    if v == nil then v = get() end
+    self.value = v
+    self:Paint()
+  end
+  for i, it in ipairs(items) do
+    local f = CreateFrame("Button", nil, c)
+    f.value = it.value
+    f.radio = FUI.Radio(f, {})
+    if f.radio.EnableMouse then f.radio:EnableMouse(false) end
+    f.radio:ClearAllPoints()
+    f.radio:SetPoint("LEFT", f, "LEFT", 0, 0)
+    f.text = FUI.Text(f, "row", Kit.C.body)
+    f.text:SetText(it.text)
+    f.text:ClearAllPoints()
+    f.text:SetPoint("LEFT", f, "LEFT", 22, 0)
+    f:SetScript("OnClick", function()
+      c.value = it.value
+      c:Paint()
+      set(it.value)
+    end)
+    c.fields[i] = f
+  end
+  function c:Layout(w)
+    self:SetSize(w, PAY_H)
+    for i, f in ipairs(self.fields) do
+      f:ClearAllPoints()
+      f:SetPoint("TOPLEFT", self, "TOPLEFT", 0, -(i - 1) * PAY_ROW)
+      f:SetSize(w, PAY_ROW)
+      FUI.Fit(f.text, math.max(20, w - 22))
+    end
+  end
+  return c
+end
+-- the body's height: info, amount, payment, tip, note, for whom, and a line for an error only while there is one
+local function FormHeight(err) return 44 + 4 * ROW + PAY_H + S.gap + (err and 18 or 0) end
 
 local function ReagentText(info)
   local parts = {}
@@ -57,6 +109,7 @@ local function Send()
   local w, why = ns.AddWish(form.spell, count, form.payKey, tip, form.note:GetText(), form.targetKey ~= "" and form.targetKey or nil, form.item)
   if not w then
     form.err:SetText(why == "full" and L["You have too many open wishes."] or L["Please check the amount."])
+    form:SetBodySize(FORM_W - 2 * S.pad, FormHeight(true))
     FUI.Fit(form.err, form:BodyWidth())
     return
   end
@@ -87,7 +140,14 @@ local function LayoutForm(d, w)
     y = y + ROW
   end
   Row(d.labels.count, d.count, 64)
-  Row(d.labels.pay, d.pay, fw)
+  -- the payment: its label beside the first of the three lines
+  d.labels.pay:ClearAllPoints()
+  d.labels.pay:SetPoint("TOPLEFT", d.body, "TOPLEFT", 0, -y - 4)
+  FUI.Fit(d.labels.pay, LABEL_W)
+  d.pay:ClearAllPoints()
+  d.pay:SetPoint("TOPLEFT", d.body, "TOPLEFT", fx, -y)
+  d.pay:Layout(fw)
+  y = y + PAY_H + S.gap
   local tipY = y
   Row(d.labels.tip, d.tip, 64)
   d.estimate:ClearAllPoints()
@@ -118,7 +178,7 @@ local function BuildFormIn()
   form.count = FUI.EditBox(b, { numeric = true, min = 1, max = 9999, maxLetters = 3, placeholder = "1" })
   local items = {}
   for _, key in ipairs(ns.PAY) do items[#items + 1] = { value = key, text = L[ns.PAY_TEXT[key]], tip = L[ns.PAY_TEXT[key]] } end
-  form.pay = FUI.Segmented(b, { items = items, get = function() return form.payKey end, set = function(v) form.payKey = v end })
+  form.pay = PayChoice(b, items, function() return form.payKey end, function(v) form.payKey = v end)
   form.tip = FUI.EditBox(b, { numeric = true, min = 0, max = 9999, maxLetters = 4, placeholder = "0" })
   form.estimate = FUI.Text(b, "sub", Kit.C.quiet)
   form.note = FUI.EditBox(b, { maxLetters = 60, placeholder = L["optional"], clear = true })
@@ -141,7 +201,7 @@ local function BuildFormIn()
     { text = L["Make the wish"], kind = "primary", onClick = function() Send() end },
   })
   form.Send = Send
-  form:SetBodySize(FORM_W - 2 * S.pad, 44 + 5 * ROW + 18)
+  form:SetBodySize(FORM_W - 2 * S.pad, FormHeight())
 end
 
 -- (16.11.2026) the form in the game's look (option blizzLook): a build that fails there is done again with the Kit
@@ -202,6 +262,7 @@ function ns.ShowWishForm(spell, item)
   form.pay:Update()
   form.target:Update()
   form.err:SetText("")
+  form:SetBodySize(FORM_W - 2 * S.pad, FormHeight())
   local est = item and ns.Price and ns.Price(item) or (not item and ns.ReagentCost and ns.ReagentCost(spell, 1))
   form.estimate:SetText(est and (item and L["AH price about %s each"] or L["reagents about %s"]):format(ns.MoneyText(est)) or "")
   form:Show()
@@ -357,15 +418,6 @@ local function FillDetail(d, e)
   d:End()
 end
 
-local function Placeholder(d)
-  d.close:Hide()
-  d:SetHead({ title = L["Wish list"], meta = L["Choose a wish on the left."] })
-  d:SetActions({})
-  d:Begin()
-  d:Para(L["Choose a wish on the left. New wishes start in the recipes: choose a recipe, then \"Wish\"."], Kit.C.muted)
-  d:End()
-end
-
 function Refresh()
   if not page then return end
   ns.InvalidateWishes()
@@ -377,8 +429,7 @@ function Refresh()
   page.count:SetText(L["%d wishes"]:format(n))
   local sel = page.selected
   if sel and not ns.Wish(sel) then sel = nil page.overlay = nil end
-  -- a wide window shows the first wish by itself; a narrow one only what the player picked
-  if not sel and page._mode == "full" then for _, e in ipairs(data) do if e.wish then sel = e.key break end end end
+  -- (18.11.2026) the card shows only the wish the player picked (it can be closed, the list then takes the whole width)
   page.selected = sel
   local picked
   for _, e in ipairs(data) do if e.wish and e.key == sel then picked = e break end end
@@ -431,35 +482,42 @@ ns.PAGE_BUILDERS.wishes = function(p)
     end,
     onClick = function(e)
       if not e.wish then return end
+      if p.selected == e.key and p.detail:IsShown() then p.CloseCard() return end
       p.selected, p.overlay = e.key, true
       p.list:Select(e)
       ns.Relayout()
     end,
   })
   p.list:SetEmpty(L["No wishes here. Wishes start in the recipes."])
-  p.detail = UI.Detail(p, { onClose = function()
-    p.overlay = nil
-    if p._mode ~= "full" then p.selected = nil p.list:Select(nil) end
+  -- (18.11.2026, as in the recipes) the card closes with its X, a second click on the picked row or Esc
+  p.CloseCard = function()
+    p.overlay, p.selected = nil, nil
+    p.list:Select(nil)
     ns.Relayout()
-  end })
+  end
+  p.detail = UI.Detail(p, { onClose = p.CloseCard })
+  if ns.CardEsc then ns.CardEsc(p.detail, p.CloseCard) end
   p.Hint = function() return L["New wishes start in the recipes. Open wishes run out after %d days."]:format(ns.db.wishDays or 14) end
   p.Layout = function(self, w, h, mode)
     self._w, self._h, self._mode = w, h, mode
     local narrow = mode ~= "full"
-    local side = narrow and 0 or DETAIL_W + S.pad
-    local lw = w - 2 * S.pad - side
+    -- (18.11.2026, as in the recipes) the filters take the whole width over list and card; the card of a picked wish
+    -- stands beside the list from 960 px, else over it, and closes again
+    local full = w - 2 * S.pad
+    local e = self.selected and ns.Wish(self.selected)
+    local lw = (e and not narrow) and full - DETAIL_W - S.pad or full
     local y = S.gap
     -- right: "New wish", the count, the state; the chips get what is left
     local nw = math.min(self.new.natural or 100, 140)
     self.new:Layout(nw)
     self.new:ClearAllPoints()
-    self.new:SetPoint("TOPRIGHT", self, "TOPLEFT", S.pad + lw, -y)
+    self.new:SetPoint("TOPRIGHT", self, "TOPLEFT", S.pad + full, -y)
     local cw = math.min(Kit.TextWidth(self.count), 90)
     self.count:ClearAllPoints()
-    self.count:SetPoint("TOPRIGHT", self, "TOPLEFT", S.pad + lw - nw - S.gap, -y - 7)
+    self.count:SetPoint("TOPRIGHT", self, "TOPLEFT", S.pad + full - nw - S.gap, -y - 7)
     UI.Fit(self.count, 90)
-    local dw = math.max(90, math.min(140, math.floor(lw * 0.2)))
-    local dx = S.pad + lw - nw - S.gap - cw - S.gap - dw
+    local dw = math.max(90, math.min(140, math.floor(full * 0.2)))
+    local dx = S.pad + full - nw - S.gap - cw - S.gap - dw
     self.state:ClearAllPoints()
     self.state:SetPoint("TOPLEFT", self, "TOPLEFT", dx, -y)
     self.state:Layout(dw)
@@ -470,22 +528,19 @@ ns.PAGE_BUILDERS.wishes = function(p)
     self.list:ClearAllPoints()
     self.list:SetPoint("TOPLEFT", self, "TOPLEFT", S.pad, -y)
     self.list:Resize(lw, math.max(40, h - y - S.gap))
-    -- the card: a column of its own from 960 px, else over the list when a wish is picked
-    local e = self.selected and ns.Wish(self.selected)
-    local show = not narrow or (e and self.overlay) and true or false
+    -- the card: beside the list from 960 px, else over it; it starts at the list's top (the filters stay free) and is
+    -- opaque over the list
+    local show = e and true or false
     self.detail:SetShown(show)
     if show then
-      local cwid = narrow and math.min(DETAIL_W, w - 2 * S.pad) or DETAIL_W
+      local cwid = narrow and math.min(DETAIL_W, full) or DETAIL_W
       self.detail:ClearAllPoints()
-      self.detail:SetPoint("TOPRIGHT", self, "TOPRIGHT", -S.pad, -S.gap)
-      self.detail:Layout(cwid, h - 2 * S.gap)
+      self.detail:SetPoint("TOPRIGHT", self, "TOPRIGHT", -S.pad, -y)
+      self.detail:Layout(cwid, h - y - S.gap)
+      if ns.CardOpaque then ns.CardOpaque(self.detail, narrow) end
       if narrow then pcall(self.detail.SetFrameLevel, self.detail, (self.list:GetFrameLevel() or 1) + 20) end
-      if e then
-        if narrow then self.detail.close:Show() else self.detail.close:Hide() end
-        FillDetail(self.detail, e)
-      else
-        Placeholder(self.detail)
-      end
+      self.detail.close:Show()
+      FillDetail(self.detail, e)
     end
   end
   p.Refresh = function() Refresh() end

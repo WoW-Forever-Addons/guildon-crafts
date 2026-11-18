@@ -156,14 +156,11 @@ end
 
 local function Placeholder(d, n)
   d.close:Hide()
-  d:SetHead({ title = L["Profitable"], meta = L["Choose a recipe on the left."] })
+  d:SetHead({ title = L["Profitable"], meta = L["No recipes with prices yet."] })
   d:SetActions({})
   d:Begin()
-  if n == 0 then
-    d:Para(L["No prices yet. With Auctionator, Auctioneer or aux: scan at the auction house; Guildon Crafts shares the prices with the guild. Without: \"Scan prices\" at the auction house."], Kit.C.muted)
-  else
-    d:Para(L["Choose a recipe on the left."], Kit.C.muted)
-  end
+  -- (18.11.2026) only while there are no prices at all (the list is empty then): how to get them
+  d:Para(L["No prices yet. With Auctionator, Auctioneer or aux: scan at the auction house; Guildon Crafts shares the prices with the guild. Without: \"Scan prices\" at the auction house."], Kit.C.muted)
   d:End()
 end
 
@@ -244,37 +241,47 @@ ns.PAGE_BUILDERS.profit = function(p)
   p.list = UI.List(p, {
     onClick = function(e)
       if not e.row then return end
+      if p.selected == e.key and p.detail:IsShown() then p.CloseCard() return end
       p.selected, p.overlay = e.key, true
       p.list:Select(e)
       ns.Relayout()
     end,
   })
   p.list:SetEmpty(L["No recipes with prices yet."])
-  p.detail = UI.Detail(p, { onClose = function()
-    p.overlay = nil
-    if p._mode ~= "full" then p.selected = nil p.list:Select(nil) end
+  -- (18.11.2026, as in the recipes) the card closes with its X, a second click on the picked row or Esc
+  p.CloseCard = function()
+    p.overlay, p.selected = nil, nil
+    p.list:Select(nil)
     ns.Relayout()
-  end })
+  end
+  p.detail = UI.Detail(p, { onClose = p.CloseCard })
+  if ns.CardEsc then ns.CardEsc(p.detail, p.CloseCard) end
   p.Hint = function(self) return self.info or "" end
   p.Layout = function(self, w, h, mode)
     self._w, self._h, self._mode = w, h, mode
     local narrow = mode ~= "full"
-    local side = narrow and 0 or DETAIL_W + S.pad
-    local lw = w - 2 * S.pad - side
+    -- (18.11.2026, as in the recipes) profession, switches and scan take the whole width over table and card; the card of a
+    -- picked recipe stands beside the table from 960 px, else over it, and closes again. Without any price it shows how
+    -- to get them.
+    local full = w - 2 * S.pad
+    local sel = self.selected
+    local empty = (self.n or 0) == 0
+    local show = sel ~= nil or empty
+    local lw = (show and not narrow) and full - DETAIL_W - S.pad or full
     local y = S.gap
     local x = S.pad
-    local dw = math.max(110, math.min(170, math.floor(lw * 0.3)))
+    local dw = math.max(110, math.min(170, math.floor(full * 0.3)))
     self.prof:ClearAllPoints() self.prof:SetPoint("TOPLEFT", self, "TOPLEFT", x, -y) self.prof:Layout(dw)
     x = x + dw + S.gap
     local sw = self.scan:IsShown() and math.min(self.scan.natural or 100, 120) or 0
     if sw > 0 then
       self.scan:Layout(sw)
       self.scan:ClearAllPoints()
-      self.scan:SetPoint("TOPRIGHT", self, "TOPLEFT", S.pad + lw, -y - 2)
+      self.scan:SetPoint("TOPRIGHT", self, "TOPLEFT", S.pad + full, -y - 2)
     end
     -- the two switches share what is left (their labels cut)
-    local room = S.pad + lw - (sw > 0 and sw + S.gap or 0) - x
-    local tw = math.floor((room - S.gap) / 2)
+    local room = S.pad + full - (sw > 0 and sw + S.gap or 0) - x
+    local tw = math.min(220, math.floor((room - S.gap) / 2))
     for _, t in ipairs({ self.mine, self.stock }) do
       t:ClearAllPoints()
       t:SetPoint("TOPLEFT", self, "TOPLEFT", x, -y - 4)
@@ -283,6 +290,7 @@ ns.PAGE_BUILDERS.profit = function(p)
       x = x + tw + S.gap
     end
     y = y + S.button + S.gap
+    local cardTop = y
     self.head:ClearAllPoints()
     self.head:SetPoint("TOPLEFT", self, "TOPLEFT", S.pad, -y)
     self.head:Bind(self.list)
@@ -291,18 +299,17 @@ ns.PAGE_BUILDERS.profit = function(p)
     self.list:ClearAllPoints()
     self.list:SetPoint("TOPLEFT", self, "TOPLEFT", S.pad, -y)
     self.list:Resize(lw, math.max(40, h - y - S.gap))
-    local sel = self.selected
-    if narrow and not self.overlay then sel = nil end
-    local show = sel ~= nil or not narrow
     self.detail:SetShown(show)
     if show then
-      local cwid = narrow and math.min(DETAIL_W, w - 2 * S.pad) or DETAIL_W
+      local cwid = narrow and math.min(DETAIL_W, full) or DETAIL_W
+      -- the card starts at the table's head; over the table it is opaque
       self.detail:ClearAllPoints()
-      self.detail:SetPoint("TOPRIGHT", self, "TOPRIGHT", -S.pad, -S.gap)
-      self.detail:Layout(cwid, h - 2 * S.gap)
+      self.detail:SetPoint("TOPRIGHT", self, "TOPRIGHT", -S.pad, -cardTop)
+      self.detail:Layout(cwid, h - cardTop - S.gap)
+      if ns.CardOpaque then ns.CardOpaque(self.detail, narrow) end
       if narrow then pcall(self.detail.SetFrameLevel, self.detail, (self.list:GetFrameLevel() or 1) + 20) end
       if sel then
-        if narrow then self.detail.close:Show() else self.detail.close:Hide() end
+        self.detail.close:Show()
         FillDetail(self.detail, sel)
       else
         Placeholder(self.detail, self.n or 0)

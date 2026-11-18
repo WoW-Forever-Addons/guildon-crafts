@@ -358,7 +358,6 @@ L["Asks the guild for new data now."] = "Fragt die Gilde jetzt nach neuen Daten.
 L["Chat notes about wishes, and how long open wishes stay on the list."] = "Chat-Hinweise zu Wünschen und wie lange offene Wünsche in der Liste bleiben."
 L["Choose a wish on the left."] = "Links einen Wunsch wählen."
 L["Class"] = "Klasse"
-L["Click a reagent's symbol: wish it from the guild's gatherers"] = "Klick auf das Symbol eines Reagenz: bei den Sammlern der Gilde wünschen"
 L["Cooldown"] = "Abklingzeit"
 L["Export"] = "Export"
 L["Made-up members to try the windows, only on your screen."] = "Ausgedachte Mitglieder zum Ausprobieren der Fenster, nur auf deinem Bildschirm."
@@ -419,3 +418,11 @@ L["The window could not be built in the game's look, it opens in the Don look. %
 L["Settings"] = "Einstellungen"
 L["Open"] = "Öffnen"
 L["The ranks are chosen in DonCore's options window. Only the guild master can change them; everyone sees his choice."] = "Die Ränge werden im Optionsfenster von DonCore gewählt. Nur der Gildenleiter kann sie ändern; alle sehen seine Wahl."
+
+-- (18.11.2026) recipe book head, whisper button, footer, unknown skill
+L["Whisper"] = "Anflüstern"
+L["Crafters"] = "Hersteller"
+L["The skill from which the recipe can be learned."] = "Die Fertigkeit, ab der man das Rezept lernen kann."
+L["How many in the guild can craft it. The tick is green while one of them is online."] = "Wie viele in der Gilde es herstellen können. Der Haken ist grün, solange einer von ihnen online ist."
+L["Click a reagent: wish it from the gatherers"] = "Klick auf ein Reagenz: bei den Sammlern wünschen"
+L["Skill not known yet"] = "Fertigkeit noch nicht bekannt"

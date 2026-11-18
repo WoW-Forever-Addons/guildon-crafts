@@ -338,7 +338,6 @@ L["Asks the guild for new data now."] = "Запрашивает у гильди�
 L["Chat notes about wishes, and how long open wishes stay on the list."] = "Сообщения в чате о желаниях и сколько открытые желания остаются в списке."
 L["Choose a wish on the left."] = "Выберите желание слева."
 L["Class"] = "Класс"
-L["Click a reagent's symbol: wish it from the guild's gatherers"] = "Клик по значку реагента: попросить у собирателей гильдии"
 L["Cooldown"] = "Восстановление"
 L["Export"] = "Экспорт"
 L["Made-up members to try the windows, only on your screen."] = "Вымышленные участники для проверки окон, только на вашем экране."
@@ -399,3 +398,11 @@ L["The window could not be built in the game's look, it opens in the Don look. %
 L["Settings"] = "Настройки"
 L["Open"] = "Открыть"
 L["The ranks are chosen in DonCore's options window. Only the guild master can change them; everyone sees his choice."] = "Ранги выбираются в окне настроек DonCore. Изменить их может только глава гильдии; его выбор видят все."
+
+-- (18.11.2026) recipe book head, whisper button, footer, unknown skill
+L["Whisper"] = "Шепнуть"
+L["Crafters"] = "Мастера"
+L["The skill from which the recipe can be learned."] = "Навык, с которого можно выучить рецепт."
+L["How many in the guild can craft it. The tick is green while one of them is online."] = "Сколько членов гильдии могут это изготовить. Галочка зелёная, пока кто-то из них в сети."
+L["Click a reagent: wish it from the gatherers"] = "Клик по реагенту: попросить у собирателей"
+L["Skill not known yet"] = "Навык пока неизвестен"

@@ -337,7 +337,6 @@ L["Asks the guild for new data now."] = "길드에 새 데이터를 지금 요�
 L["Chat notes about wishes, and how long open wishes stay on the list."] = "소원에 관한 대화창 알림과 열린 소원이 목록에 남는 기간입니다."
 L["Choose a wish on the left."] = "왼쪽에서 소원을 선택하세요."
 L["Class"] = "직업"
-L["Click a reagent's symbol: wish it from the guild's gatherers"] = "재료 아이콘 클릭: 길드 채집가에게 소원 빌기"
 L["Cooldown"] = "재사용 대기"
 L["Export"] = "내보내기"
 L["Made-up members to try the windows, only on your screen."] = "창을 시험해 볼 가상의 길드원입니다. 내 화면에만 보입니다."
@@ -398,3 +397,11 @@ L["The window could not be built in the game's look, it opens in the Don look. %
 L["Settings"] = "설정"
 L["Open"] = "열기"
 L["The ranks are chosen in DonCore's options window. Only the guild master can change them; everyone sees his choice."] = "등급은 DonCore 옵션 창에서 고릅니다. 길드장만 바꿀 수 있고, 모두가 그 선택을 봅니다."
+
+-- (18.11.2026) recipe book head, whisper button, footer, unknown skill
+L["Whisper"] = "귓속말"
+L["Crafters"] = "제작자"
+L["The skill from which the recipe can be learned."] = "레시피를 배울 수 있는 기술 수치입니다."
+L["How many in the guild can craft it. The tick is green while one of them is online."] = "길드에서 제작할 수 있는 인원 수입니다. 그중 한 명이라도 접속 중이면 체크 표시가 초록색입니다."
+L["Click a reagent: wish it from the gatherers"] = "재료 클릭: 채집가에게 소원 빌기"
+L["Skill not known yet"] = "기술 수치 아직 모름"

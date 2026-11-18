@@ -18,6 +18,7 @@ local UI = Kit
 local S = Kit.SIZE
 local DETAIL_W = 320
 local LIST_MIN = 360
+local COUNT_W = 220 -- (18.11.2026) the profession and the count right of the search line
 
 ns.BOOK_FILTERS = { "all", "someone", "nobody", "mine", "online" }
 local FILTER_TEXT = { all = "All recipes", someone = "Someone can", nobody = "Nobody can", mine = "I can", online = "Online now" }
@@ -206,6 +207,41 @@ local function SideItems(recs, cds, craftOnly, rail)
   return out
 end
 
+-- (18.11.2026, Daniel's pictures: "schneidet links noch die berufe ab") in the game's look a rail row puts its symbol 11 px
+-- from the left (DonCore Blizz PART.row) and the list keeps 20 px for its scroll bar: the Kit's 48 px rail cut the
+-- symbols in half. The game's rail is RAIL_BLIZZ wide: 11 + 24 symbol + 8 free + 20 bar + 1 line.
+local RAIL_BLIZZ = 64
+function ns.WideRail(side)
+  if not (side and side.blizz) or side._wideRail then return side end
+  side._wideRail = true
+  local base = side.Width
+  side.Width = function(self) if self.rail then return RAIL_BLIZZ end return base(self) end
+  return side
+end
+
+-- (18.11.2026, Daniel: "ich kriege das offene rezept nicht weg") Esc closes an open card first, the window only with the
+-- next Esc: the card takes the keyboard and keeps Esc to itself, every other key goes on to the game. In combat the game
+-- does not let an addon keep a key: there Esc closes the window as before.
+local function Fighting() return InCombatLockdown and InCombatLockdown() and true or false end
+function ns.CardEsc(d, close)
+  -- (18.11.2026) never in combat: there the game keeps the passing of keys, a card that took the keyboard would eat them
+  if not d or d._esc or Fighting() then return end
+  d._esc = true
+  local function Pass(on) if d.SetPropagateKeyboardInput and not Fighting() then pcall(d.SetPropagateKeyboardInput, d, on) end end
+  if d.EnableKeyboard then pcall(d.EnableKeyboard, d, true) end
+  Pass(true)
+  d:SetScript("OnKeyDown", function(self, key)
+    if key == "ESCAPE" and not Fighting() then
+      Pass(false)
+      close()
+      -- the next keys go to the game again (the flag stays as set until changed)
+      ns.After(0, function() Pass(true) end)
+    else
+      Pass(true)
+    end
+  end)
+end
+
 local function SelectSide(side, sel)
   for _, it in ipairs(side.list.items or {}) do
     if it.sel ~= nil and it.sel == sel then side.list:Select(it) return it end
@@ -253,13 +289,15 @@ local function CrafterItems(rec, narrow)
       local full = (e.max or 0) > 0 and (e.rank or 0) >= e.max
       local cells = { Colored(e.owner) .. (unread and " *" or "") }
       if not narrow then cells[#cells + 1] = { text = ClassName(e.owner), color = Kit.C.muted } end
-      cells[#cells + 1] = { bar = (e.max or 0) > 0 and (e.rank or 0) / e.max or 0, text = ("%d/%d"):format(e.rank or 0, e.max or 0),
+      -- (18.11.2026, Daniel's picture "0/0") a skill the guild has not told yet shows "?"
+      local known = (e.max or 0) > 0
+      cells[#cells + 1] = { bar = known and (e.rank or 0) / e.max or 0, text = known and ("%d/%d"):format(e.rank or 0, e.max) or "?",
         color = full and Kit.C.green or Kit.C.title, barColor = full and "green" or nil }
       cells[#cells + 1] = e.on and { text = L["online"], color = Kit.C.green } or { text = L["offline"], color = Kit.C.quiet }
       out[#out + 1] = { kind = "table", key = "m:" .. p.id .. ":" .. e.owner, owner = e.owner, prof = p.id, class = ClassOf(e.owner),
         status = e.on and "green" or nil, dim = not e.on, cells = cells,
         tooltipFn = function()
-          local lines = { L["Skill %d of %d"]:format(e.rank or 0, e.max or 0) }
+          local lines = { known and L["Skill %d of %d"]:format(e.rank or 0, e.max) or L["Skill not known yet"] }
           if p.craft then lines[#lines + 1] = L["Recipes: %d"]:format(e.n) end
           lines[#lines + 1] = L["Data from %s"]:format(ns.UI.AgeText(e.t))
           if hint then lines[#lines + 1] = hint end
@@ -280,6 +318,7 @@ ns.PAGE_BUILDERS.professions = function(p)
     if e.sel ~= nil then ns.db.profSel = e.sel p:Refresh() end
   end })
   p.side.rail = true
+  ns.WideRail(p.side)
   p.hero = UI.Hero(p, { height = HERO_H })
   p.recipes = UI.Button(p, L["Recipes"], { kind = "primary", onClick = function()
     local sel = ns.db.profSel
@@ -527,6 +566,30 @@ end
 
 -- the card on the right: what the recipe makes, where it comes from, who wants it, the reagents with what the player has,
 -- who in the guild can craft it; actions wish, want, whisper
+-- (18.11.2026) a card over the list gets an opaque ground: the game's box is 85 % opaque, the Kit's card already full
+local function Opaque(d, on)
+  if not (d and d.boxed and d.SetBackdropColor) then return end
+  if d._opaque == (on and true or false) then return end
+  d._opaque = on and true or false
+  d:SetBackdropColor(0.09, 0.08, 0.07, on and 1 or 0.85)
+end
+ns.CardOpaque = Opaque -- (the wish list and the tab Profitable as well)
+
+-- (18.11.2026, Daniel's picture: "Whisper Siyo Drood" ran over the button's edge) a button narrower than its text gets a
+-- shorter label: the first part of the name, then just "Whisper"; the whole name stays in the tooltip
+local function FitWhisper(d, crafter, list)
+  local b = d.actions and d.actions[d.nActions or 0]
+  if not (b and b.natural and b.GetWidth) then return end
+  local short = ns.ShortName(crafter)
+  local labels = { L["Whisper %s"]:format(short:match("^(%S+)%s") or short), L["Whisper"] }
+  for _, text in ipairs(labels) do
+    if b.natural <= (b:GetWidth() or 0) + 1 then return end
+    list[#list].text = text
+    d:SetActions(list)
+    b = d.actions[d.nActions]
+  end
+end
+
 local function CrafterFor(spell)
   local crafters, me = ns.CraftersOf(spell), ns.MyName()
   for _, o in ipairs(crafters) do if o ~= me and ns.IsOnline(o) then return o end end
@@ -558,9 +621,11 @@ local function FillBookDetail(d, spell)
     end, tooltip = { L["Want"], { L["Tell the guild you want to learn this recipe. Recipe items then name you in their tooltip."] } } }
   end
   if crafter then
-    acts[#acts + 1] = { text = L["Whisper %s"]:format(ns.ShortName(crafter)), onClick = function() ns.WhisperCrafter(crafter, spell) end }
+    acts[#acts + 1] = { text = L["Whisper %s"]:format(ns.ShortName(crafter)), onClick = function() ns.WhisperCrafter(crafter, spell) end,
+      tooltip = { L["Whisper %s"]:format(ns.ShortName(crafter)), { ns.IsOnline(crafter) and L["online"] or L["offline"] } } }
   end
   d:SetActions(acts)
+  if crafter then FitWhisper(d, crafter, acts) end
   d:Begin()
   local made = info.item and info.item > 0 and ItemText(info.item)
   if made and (made ~= title or (info.count or 1) > 1) then
@@ -626,7 +691,9 @@ local function RefreshBook()
   book.kind:Update()
   book.chips:SetActive(db.bookFilter)
   book.list:SetItems(data)
-  book.count:SetText(L["%d of %d"]:format(shown, total))
+  -- (18.11.2026) the chosen profession's name stood on the empty card (Daniel 26.10.); the card now only opens for a
+  -- recipe, so the name stands before the count
+  book.count:SetText(ns.ProfName(db.bookProf) .. "  ·  " .. L["%d of %d"]:format(shown, total))
   local sel = book.selected
   if sel then
     local r = ns.RECIPES[sel]
@@ -671,6 +738,7 @@ ns.PAGE_BUILDERS.recipes = function(p)
     RefreshBook()
   end })
   p.side.rail = true
+  ns.WideRail(p.side)
   p.kind = UI.Dropdown(p, {
     items = function()
       local out = { { value = "all", text = L["All types"] } }
@@ -695,6 +763,15 @@ ns.PAGE_BUILDERS.recipes = function(p)
   end })
   for _, f in ipairs(ns.BOOK_FILTERS) do p.chips:Add(f, L[FILTER_TEXT[f]]) end
   p.count = UI.Text(p, "sub", Kit.C.muted, "RIGHT")
+  -- (18.11.2026, Daniel: "ich kriege das offene rezept nicht weg") the card closes with its X, a second click on the
+  -- picked row or Esc; the list then takes the whole width again
+  local function CloseCard()
+    p.overlay, p.selected = nil, nil
+    ns.db.bookSpell = nil
+    p.list:Select(nil)
+    ns.Relayout()
+  end
+  p.CloseCard = CloseCard
   p.list = UI.List(p, {
     onToggle = function(e)
       if not e.fold then return end
@@ -711,22 +788,27 @@ ns.PAGE_BUILDERS.recipes = function(p)
       if not e.spell then return end
       -- shift-click puts the link into the open chat line, like in the game's profession window
       if IsShiftKeyDown and IsShiftKeyDown() and ns.LinkRecipe(e.spell) then return end
+      if p.selected == e.spell and p.detail:IsShown() then CloseCard() return end
       p.selected, p.overlay = e.spell, true
       ns.db.bookSpell = e.spell
       p.list:Select(e)
       ns.Relayout()
     end,
   })
-  p.list.columns = { { key = "name", width = 120, grow = true }, { key = "skill", width = 30, justify = "RIGHT" }, { key = "mark", width = 44, justify = "RIGHT" } }
-  p.list.tableIcon = true
+  -- (18.11.2026, Daniel's pictures: two columns of numbers without a head) a head as in the tabs Professions and Profitable,
+  -- each column explained in its tooltip
+  p.head = UI.TableHead(p, { icon = true, columns = {
+    { key = "name", text = L["Recipe"], width = 120, grow = true },
+    { key = "skill", text = L["Skill"], width = 60, justify = "RIGHT", tooltip = { L["Skill"], { L["The skill from which the recipe can be learned."] } } },
+    { key = "mark", text = L["Crafters"], width = 70, justify = "RIGHT",
+      tooltip = { L["Crafters"], { L["How many in the guild can craft it. The tick is green while one of them is online."] } } } } })
+  p.head:Bind(p.list)
   p.list:SetEmpty(L["No recipe fits the filter."])
-  p.detail = UI.Detail(p, { onClose = function()
-    p.overlay = nil
-    if p._narrow then p.selected = nil ns.db.bookSpell = nil p.list:Select(nil) end
-    ns.Relayout()
-  end })
+  p.detail = UI.Detail(p, { onClose = CloseCard })
+  ns.CardEsc(p.detail, CloseCard)
   p.selected = ns.db.bookSpell
-  p.Hint = function() return L["Shift-click: link in the chat"] .. "   " .. L["Click a reagent's symbol: wish it from the guild's gatherers"] end
+  -- (18.11.2026) short enough for the footer of the game's window (the longer text was cut there)
+  p.Hint = function() return L["Shift-click: link in the chat"] .. "   " .. L["Click a reagent: wish it from the gatherers"] end
   p.Layout = function(self, w, h, mode)
     self._w, self._h, self._mode = w, h, mode
     self.side:ClearAllPoints()
@@ -734,18 +816,22 @@ ns.PAGE_BUILDERS.recipes = function(p)
     self.side:Layout(h, true)
     if self._lastMode ~= mode then self._lastMode = mode if self._built then RefreshBook() return end end
     local x0 = self.side:Width() + S.pad
-    -- the card beside the list while the list keeps LIST_MIN, else over it
-    local narrow = w - x0 - S.pad - DETAIL_W - S.pad < LIST_MIN
+    -- (18.11.2026, Daniel's pictures: "I can" and "Online now" cut beside the card) search and filter chips take the whole
+    -- width over list and card; below them the list, and the card of a picked recipe beside it while the list keeps
+    -- LIST_MIN, else over it
+    local full = w - x0 - S.pad
+    local narrow = full - DETAIL_W - S.pad < LIST_MIN
     self._narrow = narrow
-    local side = narrow and 0 or DETAIL_W + S.pad
-    local lw = w - x0 - S.pad - side
-    -- first line: type, search, level from and to, the count on the right
+    local sel = self.selected
+    local show = sel ~= nil
+    local lw = (show and not narrow) and full - DETAIL_W - S.pad or full
+    -- first line: type, search, level from and to, the profession and the count on the right
     local y = S.gap
-    local cw = math.min(Kit.TextWidth(self.count), 90)
-    local room = lw - cw - S.gap
+    local cw = math.min(Kit.TextWidth(self.count), COUNT_W)
+    local room = full - cw - S.gap
     local kw = math.max(80, math.min(150, math.floor(room * 0.28)))
     local fw = 40
-    local sw = math.max(60, math.min(220, room - kw - 2 * fw - 3 * S.gap))
+    local sw = math.max(60, math.min(240, room - kw - 2 * fw - 3 * S.gap))
     local x = x0
     self.kind:ClearAllPoints() self.kind:SetPoint("TOPLEFT", self, "TOPLEFT", x, -y) self.kind:Layout(kw)
     x = x + kw + S.gap
@@ -755,40 +841,35 @@ ns.PAGE_BUILDERS.recipes = function(p)
     x = x + fw + 4
     self.to:ClearAllPoints() self.to:SetPoint("TOPLEFT", self, "TOPLEFT", x, -y) self.to:Layout(fw)
     self.count:ClearAllPoints()
-    self.count:SetPoint("TOPRIGHT", self, "TOPLEFT", x0 + lw, -y - 7)
-    UI.Fit(self.count, 90)
+    self.count:SetPoint("TOPRIGHT", self, "TOPLEFT", x0 + full, -y - 7)
+    UI.Fit(self.count, math.max(40, math.min(COUNT_W, x0 + full - (x + fw) - S.gap)))
     -- second line: the filter chips
     y = y + S.button + S.gap
     self.chips:ClearAllPoints()
     self.chips:SetPoint("TOPLEFT", self, "TOPLEFT", x0, -y)
-    self.chips:Layout(lw)
+    self.chips:Layout(full)
     y = y + S.chip + S.gap
+    -- list and card start here, under the chips
+    local cardTop = y
+    self.head:ClearAllPoints()
+    self.head:SetPoint("TOPLEFT", self, "TOPLEFT", x0, -y)
+    self.head:Bind(self.list)
+    self.head:Layout(lw)
+    y = y + S.chip
     self.list:ClearAllPoints()
     self.list:SetPoint("TOPLEFT", self, "TOPLEFT", x0, -y)
     self.list:Resize(lw, math.max(40, h - y - S.gap))
-    -- the card: a column of its own from 960 px, else over the list when a recipe is picked
-    local sel = self.selected
-    if narrow and not self.overlay then sel = nil end
-    local show = sel ~= nil or not narrow
     self.detail:SetShown(show)
     if show then
-      local dw = narrow and math.min(DETAIL_W, w - x0 - S.pad) or DETAIL_W
+      local dw = narrow and math.min(DETAIL_W, full) or DETAIL_W
+      -- (18.11.2026, Daniel's pictures) over the list the card is opaque, the list's numbers must not shine through
       self.detail:ClearAllPoints()
-      self.detail:SetPoint("TOPRIGHT", self, "TOPRIGHT", -S.pad, -S.gap)
-      self.detail:Layout(dw, h - 2 * S.gap)
+      self.detail:SetPoint("TOPRIGHT", self, "TOPRIGHT", -S.pad, -cardTop)
+      self.detail:Layout(dw, h - cardTop - S.gap)
+      Opaque(self.detail, narrow)
       if narrow then pcall(self.detail.SetFrameLevel, self.detail, (self.list:GetFrameLevel() or 1) + 20) end
-      if sel then
-        if narrow then self.detail.close:Show() else self.detail.close:Hide() end
-        FillBookDetail(self.detail, sel)
-      else
-        self.detail.close:Hide()
-        self.detail:SetHead({ title = L["Recipes"], meta = ns.ProfName(BookState().bookProf) })
-        self.detail:SetActions({})
-        self.detail:Begin()
-        self.detail:Para(L["Choose a recipe on the left."], Kit.C.muted)
-        self.detail:Para(L["Wishes start here: choose a recipe, then \"Wish\". Crafters in the guild see it in their wish list."], Kit.C.quiet)
-        self.detail:End()
-      end
+      self.detail.close:Show()
+      FillBookDetail(self.detail, sel)
     end
   end
   p.Refresh = function(self)
