@@ -1,5 +1,11 @@
 # Changes
 
+## 1.3.0
+- **The game's look, out of the box:** the Crafts & Recipes window and all its pages, the wish form, the copy window and the bar at the mailbox use the game's own frame, tabs, buttons and lists, with the guild crest in the round portrait. Prefer the old look? Turn off "Windows in the game's look" in the options (tab Window); the change applies at once.
+- **Options in the game's settings:** all options are now pages under Options > AddOns > Guildon: Crafts & Recipes. The gear, `/gnc options` and the minimap menu open them there. What the game's settings cannot do, like the ranks allowed to delete, opens in the Don options window from a button. Needs a game restart once; without the game's templates (Classic Era) or with the option off, everything stays in the Don window as before.
+- **"Example guild" as a checkbox:** the example guild in the options now shows whether it is on or off.
+- **`/gnc diag` opens a window:** the report appears in a window you can copy from; `/gnc diag chat` prints it in the chat as before.
+
 ## 1.2.7
 - **More WoW Forever recipes:** 415 more recipes (2501 in all), from the newest All The Things and ForeverDB data and from recipes seen in the game, with their reagents; several reagent lists corrected.
 - **Cleaner text in narrow places:** text that is shrunk to fit keeps one font and size.

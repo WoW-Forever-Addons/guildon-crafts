@@ -1,6 +1,9 @@
 local _, ns = ...
 local L = ns.L
 local Kit = ns.Kit
+-- (16.11.2026, Blizzard look) the page takes its blocks from the window's kit (ns.PageKit), the wish form from its own
+-- pick when it is built (ns.LookKit, FUI)
+local UI, FUI = Kit, Kit
 
 ---------------------------------------------------------------------------
 -- Tab "Wish list" and the wish form (GUILDON_PLAN.md step 3; Don style 02.11.2026, mockup docs/layout_2026-11-02/guildon/
@@ -54,7 +57,7 @@ local function Send()
   local w, why = ns.AddWish(form.spell, count, form.payKey, tip, form.note:GetText(), form.targetKey ~= "" and form.targetKey or nil, form.item)
   if not w then
     form.err:SetText(why == "full" and L["You have too many open wishes."] or L["Please check the amount."])
-    Kit.Fit(form.err, form:BodyWidth())
+    FUI.Fit(form.err, form:BodyWidth())
     return
   end
   form:Hide()
@@ -71,13 +74,13 @@ local function LayoutForm(d, w)
   d.info:ClearAllPoints()
   d.info:SetPoint("TOPLEFT", d.body, "TOPLEFT", 0, 0)
   d.info:SetSize(w, 34)
-  d.sub:ClearAllPoints() d.sub:SetPoint("TOPLEFT", d.info, "TOPLEFT", 0, 0) Kit.Fit(d.sub, w)
-  d.reag:ClearAllPoints() d.reag:SetPoint("TOPLEFT", d.info, "TOPLEFT", 0, -18) Kit.Fit(d.reag, w)
+  d.sub:ClearAllPoints() d.sub:SetPoint("TOPLEFT", d.info, "TOPLEFT", 0, 0) FUI.Fit(d.sub, w)
+  d.reag:ClearAllPoints() d.reag:SetPoint("TOPLEFT", d.info, "TOPLEFT", 0, -18) FUI.Fit(d.reag, w)
   local y = 44
   local function Row(label, field, width)
     label:ClearAllPoints()
     label:SetPoint("TOPLEFT", d.body, "TOPLEFT", 0, -y - 7)
-    Kit.Fit(label, LABEL_W)
+    FUI.Fit(label, LABEL_W)
     field:ClearAllPoints()
     field:SetPoint("TOPLEFT", d.body, "TOPLEFT", fx, -y)
     field:Layout(width)
@@ -89,37 +92,37 @@ local function LayoutForm(d, w)
   Row(d.labels.tip, d.tip, 64)
   d.estimate:ClearAllPoints()
   d.estimate:SetPoint("TOPLEFT", d.body, "TOPLEFT", fx + 64 + S.gap, -tipY - 7)
-  Kit.Fit(d.estimate, math.max(20, fw - 64 - S.gap))
+  FUI.Fit(d.estimate, math.max(20, fw - 64 - S.gap))
   Row(d.labels.note, d.note, fw)
   Row(d.labels.target, d.target, fw)
   d.err:ClearAllPoints()
   d.err:SetPoint("TOPLEFT", d.body, "TOPLEFT", 0, -y - 2)
-  Kit.Fit(d.err, w)
+  FUI.Fit(d.err, w)
 end
 
-local function BuildForm()
-  form = Kit.Dialog("GuildonCraftsWishForm", { width = FORM_W, height = 330, onLayout = function(d, w) LayoutForm(d, w) end })
+local function BuildFormIn()
+  form = FUI.Dialog(FUI.blizzLook and "GuildonCraftsWishFormBlizz" or "GuildonCraftsWishForm", { width = FORM_W, height = 330, onLayout = function(d, w) LayoutForm(d, w) end })
   local b = form.body
   -- the hint and the reagents: one line each, the whole text in the tooltip
   form.info = CreateFrame("Frame", nil, b)
-  form.sub = Kit.Text(form.info, "sub", Kit.C.muted)
-  form.reag = Kit.Text(form.info, "sub", Kit.C.quiet)
+  form.sub = FUI.Text(form.info, "sub", Kit.C.muted)
+  form.reag = FUI.Text(form.info, "sub", Kit.C.quiet)
   Kit.Stateful(form.info, function() end)
   form.info._cutTexts = { form.sub, form.reag }
   form.labels = {}
   for k, text in pairs({ count = L["Amount"], pay = L["Payment"], tip = L["Tip (gold)"], note = L["Note"], target = L["For"] }) do
-    local fs = Kit.Text(b, "row", Kit.C.muted)
+    local fs = FUI.Text(b, "row", Kit.C.muted)
     fs:SetText(text)
     form.labels[k] = fs
   end
-  form.count = Kit.EditBox(b, { numeric = true, min = 1, max = 9999, maxLetters = 3, placeholder = "1" })
+  form.count = FUI.EditBox(b, { numeric = true, min = 1, max = 9999, maxLetters = 3, placeholder = "1" })
   local items = {}
   for _, key in ipairs(ns.PAY) do items[#items + 1] = { value = key, text = L[ns.PAY_TEXT[key]], tip = L[ns.PAY_TEXT[key]] } end
-  form.pay = Kit.Segmented(b, { items = items, get = function() return form.payKey end, set = function(v) form.payKey = v end })
-  form.tip = Kit.EditBox(b, { numeric = true, min = 0, max = 9999, maxLetters = 4, placeholder = "0" })
-  form.estimate = Kit.Text(b, "sub", Kit.C.quiet)
-  form.note = Kit.EditBox(b, { maxLetters = 60, placeholder = L["optional"], clear = true })
-  form.target = Kit.Dropdown(b, {
+  form.pay = FUI.Segmented(b, { items = items, get = function() return form.payKey end, set = function(v) form.payKey = v end })
+  form.tip = FUI.EditBox(b, { numeric = true, min = 0, max = 9999, maxLetters = 4, placeholder = "0" })
+  form.estimate = FUI.Text(b, "sub", Kit.C.quiet)
+  form.note = FUI.EditBox(b, { maxLetters = 60, placeholder = L["optional"], clear = true })
+  form.target = FUI.Dropdown(b, {
     items = function()
       local out = { { value = "", text = L["Everyone who can craft it"] } }
       for _, o in ipairs(form.spell and ns.CraftersOf(form.spell) or {}) do
@@ -132,13 +135,31 @@ local function BuildForm()
   })
   form.target:SetTooltip(L["Who should craft it"], { L["Click: choose"] })
   form.count:SetNext(form.tip) form.tip:SetNext(form.note) form.note:SetNext(form.count)
-  form.err = Kit.Text(b, "sub", Kit.C.red)
+  form.err = FUI.Text(b, "sub", Kit.C.red)
   form:SetButtons({
     { text = L["Cancel"], onClick = function(d) d:Hide() end },
     { text = L["Make the wish"], kind = "primary", onClick = function() Send() end },
   })
   form.Send = Send
   form:SetBodySize(FORM_W - 2 * S.pad, 44 + 5 * ROW + 18)
+end
+
+-- (16.11.2026) the form in the game's look (option blizzLook): a build that fails there is done again with the Kit
+local function BuildForm()
+  FUI = ns.LookKit and ns.LookKit() or Kit
+  if FUI == Kit then BuildFormIn() return end
+  local ok, err = pcall(BuildFormIn)
+  if ok then return end
+  if form and form.Hide then pcall(form.Hide, form) end
+  form, FUI = nil, Kit
+  if ns.LookFailed then ns.LookFailed("wish form", err) end
+  BuildFormIn()
+end
+-- the option blizzLook changed: the form is built again in the other look the next time it opens
+function ns.WishFormReset()
+  if not form then return end
+  form:Hide()
+  form = nil
 end
 
 -- item names arrive later from the server ("Item 2835" until then): fill them in when the form is open
@@ -374,16 +395,17 @@ function ns.SelectWish(key)
 end
 
 ns.PAGE_BUILDERS.wishes = function(p)
+  UI = ns.PageKit and ns.PageKit() or Kit
   page = p
   State()
-  p.chips = Kit.ChipBar(p, { onChange = function(key)
+  p.chips = UI.ChipBar(p, { onChange = function(key)
     State().wishFilter = key
     p.selected, p.overlay = nil, nil
     Refresh()
   end })
   for _, f in ipairs(ns.WISH_FILTERS) do p.chips:Add(f, L[FILTER_TEXT[f]]) end
   -- a small filter by state (Daniel 26.10., Gemini draft)
-  p.state = Kit.Dropdown(p, {
+  p.state = UI.Dropdown(p, {
     items = function()
       local out = { { value = "all", text = L["All states"] } }
       for _, k in ipairs(ns.WISH_STATES) do if k ~= "all" then out[#out + 1] = { value = k, text = L[ns.STATE_TEXT[k]] } end end
@@ -393,13 +415,13 @@ ns.PAGE_BUILDERS.wishes = function(p)
     set = function(key) State().wishState = key ~= "all" and key or nil p.selected, p.overlay = nil, nil Refresh() end,
   })
   p.state:SetTooltip(L["State"], { L["Click: choose"] })
-  p.count = Kit.Text(p, "sub", Kit.C.muted, "RIGHT")
-  p.new = Kit.Button(p, L["New wish"], { kind = "primary", onClick = function()
+  p.count = UI.Text(p, "sub", Kit.C.muted, "RIGHT")
+  p.new = UI.Button(p, L["New wish"], { kind = "primary", onClick = function()
     ns.Print(L["Choose a recipe, then click \"Wish\" below its details."])
     ns.OpenTab("recipes")
   end })
   p.new:SetTooltip(L["New wish"], { L["Choose a recipe, then click \"Wish\" below its details."] })
-  p.list = Kit.List(p, {
+  p.list = UI.List(p, {
     onToggle = function(e)
       if not e.fold then return end
       local db = State()
@@ -415,7 +437,7 @@ ns.PAGE_BUILDERS.wishes = function(p)
     end,
   })
   p.list:SetEmpty(L["No wishes here. Wishes start in the recipes."])
-  p.detail = Kit.Detail(p, { onClose = function()
+  p.detail = UI.Detail(p, { onClose = function()
     p.overlay = nil
     if p._mode ~= "full" then p.selected = nil p.list:Select(nil) end
     ns.Relayout()
@@ -435,7 +457,7 @@ ns.PAGE_BUILDERS.wishes = function(p)
     local cw = math.min(Kit.TextWidth(self.count), 90)
     self.count:ClearAllPoints()
     self.count:SetPoint("TOPRIGHT", self, "TOPLEFT", S.pad + lw - nw - S.gap, -y - 7)
-    Kit.Fit(self.count, 90)
+    UI.Fit(self.count, 90)
     local dw = math.max(90, math.min(140, math.floor(lw * 0.2)))
     local dx = S.pad + lw - nw - S.gap - cw - S.gap - dw
     self.state:ClearAllPoints()

@@ -1,6 +1,8 @@
 local _, ns = ...
 local L = ns.L
 local Kit = ns.Kit
+-- (16.11.2026, Blizzard look) the page takes its blocks from the window's kit (ns.PageKit: DonCore Kit or DonCore Blizz)
+local UI = Kit
 
 ---------------------------------------------------------------------------
 -- Tab "Profitable" (GUILDON_PLAN.md step 5, "Bedienung"; Don style 02.11.2026, BAUSTEINE.md: the same table with column
@@ -199,9 +201,10 @@ end
 ns.RefreshProfit = Refresh
 
 ns.PAGE_BUILDERS.profit = function(p)
+  UI = ns.PageKit and ns.PageKit() or Kit
   page = p
   State()
-  p.prof = Kit.Dropdown(p, {
+  p.prof = UI.Dropdown(p, {
     items = function()
       local out = { { value = 0, text = L["All professions"] } }
       for _, pr in ipairs(ns.PROFS) do if pr.craft then out[#out + 1] = { value = pr.id, text = ns.ProfName(pr.id) } end end
@@ -211,11 +214,11 @@ ns.PAGE_BUILDERS.profit = function(p)
     set = function(key) State().profitProf = key p.selected = nil Refresh() end,
   })
   p.prof:SetTooltip(L["Profession"], { L["Click: choose"] })
-  p.mine = Kit.Toggle(p, { label = L["Only my recipes"], get = function() return State().profitMine end,
+  p.mine = UI.Toggle(p, { label = L["Only my recipes"], get = function() return State().profitMine end,
     set = function(v) ns.db.profitMine = v Refresh() end })
-  p.stock = Kit.Toggle(p, { label = L["Count my stock"], get = function() return State().profitStock end,
+  p.stock = UI.Toggle(p, { label = L["Count my stock"], get = function() return State().profitStock end,
     set = function(v) ns.db.profitStock = v Refresh() end })
-  p.scan = Kit.Button(p, L["Scan prices"], { small = true, onClick = function()
+  p.scan = UI.Button(p, L["Scan prices"], { small = true, onClick = function()
     -- the reagents and results of the shown recipes whose price is older than a day or missing, up to 80
     local items, now = {}, time()
     for _, id in ipairs(ns.RelevantItems()) do
@@ -227,7 +230,7 @@ ns.PAGE_BUILDERS.profit = function(p)
   end })
   p.scan:SetTooltip(L["Scan prices"], { L["Asks the auction house for missing or old prices, one item after the other (up to 80)."] })
   -- the table head: a click sorts by that column, a second click turns the order round
-  p.head = Kit.TableHead(p, { icon = true, columns = {
+  p.head = UI.TableHead(p, { icon = true, columns = {
     { key = "name", text = L["Recipe"], width = 110, grow = true, sort = true },
     { key = "revenue", text = L["Revenue"], width = 58, justify = "RIGHT", sort = true, desc = true },
     { key = "cost", text = L["Reagents"], width = 58, justify = "RIGHT", sort = true, desc = true },
@@ -238,7 +241,7 @@ ns.PAGE_BUILDERS.profit = function(p)
       db.profitSort, db.profitDesc = key, desc and true or false
       Refresh()
     end })
-  p.list = Kit.List(p, {
+  p.list = UI.List(p, {
     onClick = function(e)
       if not e.row then return end
       p.selected, p.overlay = e.key, true
@@ -247,7 +250,7 @@ ns.PAGE_BUILDERS.profit = function(p)
     end,
   })
   p.list:SetEmpty(L["No recipes with prices yet."])
-  p.detail = Kit.Detail(p, { onClose = function()
+  p.detail = UI.Detail(p, { onClose = function()
     p.overlay = nil
     if p._mode ~= "full" then p.selected = nil p.list:Select(nil) end
     ns.Relayout()
@@ -276,7 +279,7 @@ ns.PAGE_BUILDERS.profit = function(p)
       t:ClearAllPoints()
       t:SetPoint("TOPLEFT", self, "TOPLEFT", x, -y - 4)
       t:SetWidth(math.max(28, tw))
-      if t.label then Kit.Fit(t.label, math.max(1, tw - 34)) end
+      if t.label then UI.Fit(t.label, math.max(1, tw - 34)) end
       x = x + tw + S.gap
     end
     y = y + S.button + S.gap

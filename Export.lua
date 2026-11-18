@@ -94,11 +94,32 @@ end
 -- Copy box: a dialog with a text the player selects and copies (Ctrl+C). Also used by the shopping list. (02.11.2026, StyleKit 2
 -- step 4) DonCore's Kit.ShowCopy, the same box for every Don addon.
 ---------------------------------------------------------------------------
+-- (16.11.2026, Blizzard look) with the option blizzLook the game's look (DonCore Blizz's ShowCopy, its own box); a box that
+-- fails there is shown with the Kit
+local copyKit
 function ns.ShowCopyBox(title, hint, text)
-  return ns.Kit.ShowCopy(title, hint, text, { selectAll = L["Select all"], close = L["Close"] })
+  local words = { selectAll = L["Select all"], close = L["Close"] }
+  local K = ns.LookKit and ns.LookKit() or ns.Kit
+  if K ~= ns.Kit then
+    local ok, d = pcall(K.ShowCopy, title, hint, text, words)
+    if ok and d then copyKit = K return d end
+    local Bz = ns.Blizz and ns.Blizz()
+    if Bz and Bz._copy and Bz._copy.Hide then pcall(Bz._copy.Hide, Bz._copy) end
+    if ns.LookFailed then ns.LookFailed("copy box", ok and "no box" or d) end
+  end
+  copyKit = ns.Kit
+  return ns.Kit.ShowCopy(title, hint, text, words)
 end
 
-function ns.CopyBox() return ns.Kit._copy end -- (tests)
+-- the box last shown (tests); the option blizzLook changed: the open box closes
+function ns.CopyBox()
+  if copyKit and copyKit ~= ns.Kit then local Bz = ns.Blizz and ns.Blizz() return Bz and Bz._copy end
+  return ns.Kit._copy
+end
+function ns.CopyReset()
+  local d = ns.CopyBox()
+  if d and d.Hide then d:Hide() end
+end
 
 function ns.ShowExport()
   local text, n = ns.ExportText()

@@ -547,21 +547,23 @@ ns.OnInit(function()
   end)
 end)
 
-function ns.PrintDiag()
+-- (16.11.2026) out: where the lines go (default print); the diag window of the addons collects them (ns.DiagLines)
+function ns.PrintDiag(out)
+  out = out or print
   local total, online, guildon, guildonOnline = ns.MemberCounts()
   local sets = 0
   for _ in pairs(ns.db.sets) do sets = sets + 1 end
   local npend = 0
   for _ in pairs(pending) do npend = npend + 1 end
-  ns.Print(("v%s %s, prefix %s"):format(ns.VERSION, ns.ERA and "Era" or "Forever", ns.PREFIX))
-  print(("  members %d, online %d, with %s %d (online %d)"):format(total, online, ns.ADDON_TITLE, guildon, guildonOnline))
-  print(("  sets %d, pending %d, queue %d; sent %d, received %d, retried %d, dropped %d, stored %d, rejected %d")
+  out(ns.WORDMARK .. ": " .. ("v%s %s, prefix %s"):format(ns.VERSION, ns.ERA and "Era" or "Forever", ns.PREFIX))
+  out(("  members %d, online %d, with %s %d (online %d)"):format(total, online, ns.ADDON_TITLE, guildon, guildonOnline))
+  out(("  sets %d, pending %d, queue %d; sent %d, received %d, retried %d, dropped %d, stored %d, rejected %d")
     :format(sets, npend, #queue + #fast, stats.sent, stats.received, stats.retried, stats.dropped, stats.stored, stats.rejected))
   if ns.LEGACY_PREFIX then
     local n = 0
     for _ in pairs(legacyPeers) do n = n + 1 end
-    print(("  also reads prefix %s: %d members with the older addon heard"):format(ns.LEGACY_PREFIX, n))
+    out(("  also reads prefix %s: %d members with the older addon heard"):format(ns.LEGACY_PREFIX, n))
   end
-  if ns.DiagExtra then ns.DiagExtra() end
-  for _, e in ipairs(ns.Errors()) do print(("  error [%s] x%d: %s"):format(e.context, e.count, e.msg)) end
+  if ns.DiagExtra then ns.DiagExtra(out) end
+  for _, e in ipairs(ns.Errors()) do out(("  error [%s] x%d: %s"):format(e.context, e.count, e.msg)) end
 end

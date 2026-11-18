@@ -1,6 +1,8 @@
 local _, ns = ...
 local L = ns.L
 local Kit = ns.Kit
+-- (16.11.2026, Blizzard look) the page takes its blocks from the window's kit (ns.PageKit: DonCore Kit or DonCore Blizz)
+local UI = Kit
 
 ---------------------------------------------------------------------------
 -- Guildon Crafts's tabs and the overview in the Don style (StyleKit 2 step 4, 02.11.2026, docs/layout_2026-11-02/guildon/
@@ -63,29 +65,30 @@ local function CharItems()
 end
 
 local function BuildOverview(p)
-  p.hero = Kit.Hero(p, { height = 72 })
+  UI = ns.PageKit and ns.PageKit() or Kit
+  p.hero = UI.Hero(p, { height = 72 })
   p.hero:SetPoint("TOPLEFT", p, "TOPLEFT", 0, 0)
   p.tiles = {
-    members = Kit.Tile(p, { label = L["Members"] }),
-    guildon = Kit.Tile(p, { label = L["With Guildon Crafts"] }),
-    sets = Kit.Tile(p, { label = L["Data sets"] }),
-    last = Kit.Tile(p, { label = L["Last data from the guild"] }),
-    game = Kit.Tile(p, { label = L["Game version"] }),
+    members = UI.Tile(p, { label = L["Members"] }),
+    guildon = UI.Tile(p, { label = L["With Guildon Crafts"] }),
+    sets = UI.Tile(p, { label = L["Data sets"] }),
+    last = UI.Tile(p, { label = L["Last data from the guild"] }),
+    game = UI.Tile(p, { label = L["Game version"] }),
     -- the wishes the player can craft: the tile opens the wish list
-    open = Kit.Tile(p, { label = L["Open wishes for you"], onClick = function() ns.OpenTab("wishes") end }),
+    open = UI.Tile(p, { label = L["Open wishes for you"], onClick = function() ns.OpenTab("wishes") end }),
   }
   p.order = { "members", "guildon", "open", "sets", "last", "game" }
   p.tiles.open:SetTooltip(L["Wish list"], { L["Wishes of the guild that you can craft."] }, L["Click: open the wish list"])
   -- without a guild: the player's own characters with their professions
-  p.chars = Kit.List(p, {})
+  p.chars = UI.List(p, {})
   p.chars.columns = { { width = 140 }, { width = 120, grow = true } }
   p.chars.tableIcon = true
   p.chars:Hide()
   -- bottom: a note, the website export and the example guild (layout review 25.10.: without a guild the page was empty)
-  p.note = Kit.Text(p, "sub", Kit.C.muted)
-  p.export = Kit.Button(p, L["Export for the guild website"], { small = true, onClick = function() if ns.ShowExport then ns.ShowExport() end end })
+  p.note = UI.Text(p, "sub", Kit.C.muted)
+  p.export = UI.Button(p, L["Export for the guild website"], { small = true, onClick = function() if ns.ShowExport then ns.ShowExport() end end })
   p.export:SetTooltip(L["Export for the guild website"], { L["Your characters' professions and recipes as one text to copy."] }, L["Also: /gnc export"])
-  p.demo = Kit.Button(p, "", { small = true, onClick = function()
+  p.demo = UI.Button(p, "", { small = true, onClick = function()
     if ns.SetDemo then ns.SetDemo(not ns.demo) end
     if p:IsShown() then p:Refresh() p:Layout(p._w, p._h, p._mode) end
   end })
@@ -126,7 +129,7 @@ local function BuildOverview(p)
     bx = bx - ew - S.gap
     self.note:ClearAllPoints()
     self.note:SetPoint("BOTTOMLEFT", self, "BOTTOMLEFT", x0, S.gap + 6)
-    Kit.Fit(self.note, math.max(40, bx - x0))
+    UI.Fit(self.note, math.max(40, bx - x0))
   end
   p.Refresh = function(self)
     local g, rank = ns.GuildInfo()

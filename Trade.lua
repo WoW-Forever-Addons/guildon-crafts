@@ -277,29 +277,44 @@ end
 
 local BAR_W, PAD, GAP = 340, 10, 6
 
--- (02.11.2026, StyleKit 2 step 4) built from DonCore's Kit: the window's look (dark ground, gold edge, a title band), Kit buttons.
+-- (02.11.2026, StyleKit 2 step 4) built from DonCore's Kit (16.11.2026: or DonCore Blizz, below): the window's look (dark ground, gold edge, a title band), Kit buttons.
 -- The note may take up to four lines (04.11.2026: the agreed cash on delivery as well).
 -- (04.11.2026, Era-Test) named GuildonCraftsMailBar: Golddon looks for it and puts its button below it (TellGolddon).
-local function BuildBar()
+-- (16.11.2026, Daniel: the Blizzard look as the default) with the option blizzLook the bar stands on the game's tooltip
+-- edge (DonCore Blizz's box) with the game's buttons and fonts; the Don ground, edges and band only in the Don look.
+-- A build that fails in the game's look is done again with the Kit.
+local barKit
+local function BuildBarIn(UI)
   local Kit = ns.Kit
   local S = Kit.SIZE
+  local blizz = UI ~= Kit
+  barKit = UI
   bar = CreateFrame("Frame", "GuildonCraftsMailBar", UIParent)
   bar:SetSize(BAR_W, 76)
   bar:SetFrameStrata("DIALOG")
   bar:EnableMouse(true)
-  Kit.Fill(bar, Kit.C.window)
-  Kit.Border(bar, Kit.C.outer, 0)
-  Kit.Border(bar, Kit.C.gold, 1)
   bar.band = CreateFrame("Frame", nil, bar)
   bar.band:SetPoint("TOPLEFT", bar, "TOPLEFT", 2, -2)
   bar.band:SetPoint("TOPRIGHT", bar, "TOPRIGHT", -2, -2)
   bar.band:SetHeight(22)
-  Kit.Fill(bar.band, Kit.C.panel)
-  local line = Kit.Tex(bar.band, "ARTWORK", Kit.C.gold)
-  line:SetPoint("BOTTOMLEFT") line:SetPoint("BOTTOMRIGHT") line:SetHeight(1)
-  bar.title = Kit.Text(bar.band, "sub", Kit.C.txGold)
+  if blizz then
+    local Bz = ns.Blizz()
+    bar.box = Bz.Box("Frame", bar)
+    bar.box:SetAllPoints()
+    if bar.box.SetFrameLevel and bar.GetFrameLevel then bar.box:SetFrameLevel(math.max(0, (tonumber((bar:GetFrameLevel())) or 1) - 1)) end
+    if bar.box.EnableMouse then bar.box:EnableMouse(false) end
+    bar.blizzLook = true
+  else
+    Kit.Fill(bar, Kit.C.window)
+    Kit.Border(bar, Kit.C.outer, 0)
+    Kit.Border(bar, Kit.C.gold, 1)
+    Kit.Fill(bar.band, Kit.C.panel)
+    local line = Kit.Tex(bar.band, "ARTWORK", Kit.C.gold)
+    line:SetPoint("BOTTOMLEFT") line:SetPoint("BOTTOMRIGHT") line:SetHeight(1)
+  end
+  bar.title = UI.Text(bar.band, "sub", Kit.C.txGold)
   bar.title:SetPoint("LEFT", bar.band, "LEFT", PAD, 0)
-  bar.info = Kit.Text(bar, "sub", Kit.C.body)
+  bar.info = UI.Text(bar, "sub", Kit.C.body)
   bar.info:SetPoint("TOPLEFT", bar, "TOPLEFT", PAD, -31)
   bar.info:SetWidth(BAR_W - 2 * PAD)
   bar.info:SetWordWrap(true)
@@ -307,13 +322,35 @@ local function BuildBar()
   if bar.info.SetJustifyV then bar.info:SetJustifyV("TOP") end
   -- the buttons share the width evenly (Layout). (04.11.2026, Era-Test) Daniel 04.11. "beides mit einem Klick": at the
   -- mailbox one button fills in the letter and puts in the first stack; sending stays with the player.
-  bar.put = Kit.Button(bar, "", { small = true, kind = "primary", onClick = function() ns.SafeCall("trade put", ns.BarAction) end })
-  bar.next = Kit.Button(bar, L["next"], { small = true, onClick = function()
+  bar.put = UI.Button(bar, "", { small = true, kind = "primary", onClick = function() ns.SafeCall("trade put", ns.BarAction) end })
+  bar.next = UI.Button(bar, L["next"], { small = true, onClick = function()
     state.index = state.index % math.max(1, #state.orders) + 1
     ns.PaintBar()
   end })
   bar.btnH = S.buttonSmall
   bar:Hide()
+end
+
+local function BuildBar()
+  local UI = ns.LookKit and ns.LookKit() or ns.Kit
+  if UI == ns.Kit then BuildBarIn(UI) return end
+  local ok, err = pcall(BuildBarIn, UI)
+  if ok then return end
+  if bar and bar.Hide then pcall(bar.Hide, bar) end
+  bar = nil
+  if ns.LookFailed then ns.LookFailed("mail bar", err) end
+  BuildBarIn(ns.Kit)
+end
+
+-- the option blizzLook changed: the bar is built again in the other look (shown again when it was up)
+function ns.MailBarReset()
+  if not bar then return end
+  local open = bar:IsShown()
+  bar:Hide()
+  bar = nil
+  BuildBar()
+  if open then ns.PaintBar() end
+  TellGolddon()
 end
 
 -- the visible buttons in one row, all the same width over the whole bar; the bar is as high as its text needs
@@ -329,7 +366,7 @@ local function Layout()
       b:SetPoint("BOTTOMLEFT", bar, "BOTTOMLEFT", PAD + (i - 1) * (w + GAP), 8)
     end
   end
-  ns.Kit.Fit(bar.title, BAR_W - 2 * PAD)
+  (barKit or ns.Kit).Fit(bar.title, BAR_W - 2 * PAD)
   local th = tonumber(bar.info:GetStringHeight()) or 12
   local lines = math.max(1, math.min(4, math.floor(th / 12 + 0.5)))
   bar.info:SetHeight(lines * 12)

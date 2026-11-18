@@ -1,6 +1,8 @@
 local _, ns = ...
 local L = ns.L
 local Kit = ns.Kit
+-- (16.11.2026, Blizzard look) the page takes its blocks from the window's kit (ns.PageKit: DonCore Kit or DonCore Blizz)
+local UI = Kit
 
 ---------------------------------------------------------------------------
 -- Tabs "Professions" and "Recipes" (GUILDON_PLAN.md step 2, "Bedienung"; Don style 02.11.2026, mockup
@@ -273,12 +275,13 @@ local function CrafterItems(rec, narrow)
 end
 
 ns.PAGE_BUILDERS.professions = function(p)
-  p.side = Kit.Sidebar(p, { onClick = function(e)
+  UI = ns.PageKit and ns.PageKit() or Kit
+  p.side = UI.Sidebar(p, { onClick = function(e)
     if e.sel ~= nil then ns.db.profSel = e.sel p:Refresh() end
   end })
   p.side.rail = true
-  p.hero = Kit.Hero(p, { height = HERO_H })
-  p.recipes = Kit.Button(p, L["Recipes"], { kind = "primary", onClick = function()
+  p.hero = UI.Hero(p, { height = HERO_H })
+  p.recipes = UI.Button(p, L["Recipes"], { kind = "primary", onClick = function()
     local sel = ns.db.profSel
     if type(sel) == "number" and ns.PROF_BY_ID[sel] and ns.PROF_BY_ID[sel].craft then ns.OpenRecipes(sel) end
   end })
@@ -288,12 +291,12 @@ ns.PAGE_BUILDERS.professions = function(p)
     if not narrow then cols[#cols + 1] = { key = "class", text = L["Class"], width = 96 } end
     cols[#cols + 1] = { key = "skill", text = L["Skill"], width = narrow and 130 or 170 }
     cols[#cols + 1] = { key = "state", text = L["State"], width = 64, justify = "RIGHT" }
-    return Kit.TableHead(p, { icon = true, columns = cols })
+    return UI.TableHead(p, { icon = true, columns = cols })
   end
   p.headWide, p.headNarrow = Head(false), Head(true)
-  p.headCd = Kit.TableHead(p, { icon = true, columns = { { key = "name", text = L["Name"], width = 110, grow = true },
+  p.headCd = UI.TableHead(p, { icon = true, columns = { { key = "name", text = L["Name"], width = 110, grow = true },
     { key = "cd", text = L["Cooldown"], width = 150 }, { key = "ready", text = L["Ready"], width = 90, justify = "RIGHT" } } })
-  p.list = Kit.List(p, {
+  p.list = UI.List(p, {
     onToggle = function(e)
       if e.more then
         ns.db.profOpen = type(ns.db.profOpen) == "table" and ns.db.profOpen or {}
@@ -656,9 +659,10 @@ local function ClearFields()
 end
 
 ns.PAGE_BUILDERS.recipes = function(p)
+  UI = ns.PageKit and ns.PageKit() or Kit
   book = p
   BookState()
-  p.side = Kit.Sidebar(p, { onClick = function(e)
+  p.side = UI.Sidebar(p, { onClick = function(e)
     if not e.prof or e.prof == ns.db.bookProf then return end
     ns.db.bookProf = e.prof
     ns.db.bookType = "all"
@@ -667,7 +671,7 @@ ns.PAGE_BUILDERS.recipes = function(p)
     RefreshBook()
   end })
   p.side.rail = true
-  p.kind = Kit.Dropdown(p, {
+  p.kind = UI.Dropdown(p, {
     items = function()
       local out = { { value = "all", text = L["All types"] } }
       for _, t in ipairs(ns.bookTypes or {}) do out[#out + 1] = { value = t.key, text = t.label } end
@@ -677,21 +681,21 @@ ns.PAGE_BUILDERS.recipes = function(p)
     set = function(key) BookState().bookType = key p.selected = nil RefreshBook() end,
   })
   p.kind:SetTooltip(L["Type"], { L["Click: choose"] })
-  p.search = Kit.SearchBox(p, { placeholder = L["Recipe, item"], onChange = function() RefreshBook() end })
+  p.search = UI.SearchBox(p, { placeholder = L["Recipe, item"], onChange = function() RefreshBook() end })
   -- from and to: the level from which the crafted item can be worn or used (Daniel 26.10.), not the skill
-  p.from = Kit.EditBox(p, { numeric = true, min = 1, max = 99, maxLetters = 2, placeholder = L["from"], onChange = function() RefreshBook() end })
-  p.to = Kit.EditBox(p, { numeric = true, min = 1, max = 99, maxLetters = 2, placeholder = L["to"], onChange = function() RefreshBook() end })
+  p.from = UI.EditBox(p, { numeric = true, min = 1, max = 99, maxLetters = 2, placeholder = L["from"], onChange = function() RefreshBook() end })
+  p.to = UI.EditBox(p, { numeric = true, min = 1, max = 99, maxLetters = 2, placeholder = L["to"], onChange = function() RefreshBook() end })
   for _, f in ipairs({ p.from, p.to }) do
     f:SetTooltip(L["Wearable from level"], { L["Shows recipes whose item can be worn or used from this character level up to that level."] })
   end
   p.from:SetNext(p.to) p.to:SetNext(p.from)
-  p.chips = Kit.ChipBar(p, { onChange = function(key)
+  p.chips = UI.ChipBar(p, { onChange = function(key)
     BookState().bookFilter = key
     RefreshBook()
   end })
   for _, f in ipairs(ns.BOOK_FILTERS) do p.chips:Add(f, L[FILTER_TEXT[f]]) end
-  p.count = Kit.Text(p, "sub", Kit.C.muted, "RIGHT")
-  p.list = Kit.List(p, {
+  p.count = UI.Text(p, "sub", Kit.C.muted, "RIGHT")
+  p.list = UI.List(p, {
     onToggle = function(e)
       if not e.fold then return end
       local db = BookState()
@@ -716,7 +720,7 @@ ns.PAGE_BUILDERS.recipes = function(p)
   p.list.columns = { { key = "name", width = 120, grow = true }, { key = "skill", width = 30, justify = "RIGHT" }, { key = "mark", width = 44, justify = "RIGHT" } }
   p.list.tableIcon = true
   p.list:SetEmpty(L["No recipe fits the filter."])
-  p.detail = Kit.Detail(p, { onClose = function()
+  p.detail = UI.Detail(p, { onClose = function()
     p.overlay = nil
     if p._narrow then p.selected = nil ns.db.bookSpell = nil p.list:Select(nil) end
     ns.Relayout()
@@ -752,7 +756,7 @@ ns.PAGE_BUILDERS.recipes = function(p)
     self.to:ClearAllPoints() self.to:SetPoint("TOPLEFT", self, "TOPLEFT", x, -y) self.to:Layout(fw)
     self.count:ClearAllPoints()
     self.count:SetPoint("TOPRIGHT", self, "TOPLEFT", x0 + lw, -y - 7)
-    Kit.Fit(self.count, 90)
+    UI.Fit(self.count, 90)
     -- second line: the filter chips
     y = y + S.button + S.gap
     self.chips:ClearAllPoints()
