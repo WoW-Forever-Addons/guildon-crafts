@@ -1,5 +1,10 @@
 # Changes
 
+## 1.3.5
+
+- **Data of 21 November:** recipe data refreshed with the recordings of more players.
+- Slow calls are noted for the DonMonitor report.
+
 ## 1.3.4
 
 - **Smoother play:** fixed short stutters. When the game reports no realm name (it can stay empty for a whole session on WoW Forever), every guild name made the addon count through all saved data; the realm is now remembered. Guildon and Guildon: Crafts also share one guild roster instead of each rebuilding it in the same moment, and incoming addon messages of other addons are skipped earlier.

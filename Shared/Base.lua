@@ -50,8 +50,33 @@ local function Done(context, ok, a, b, c)
   if ok then return a, b, c end
   pcall(Record, context, a)
 end
+-- (21.11.2026, Ruckler, Daniel: "monitor ... dass ich das im spiel testen kann") every protected call that takes
+-- SLOW_MS or more goes into the global ring DonSlowLog (60 entries, not saved): addon, context, the function's file and
+-- line, ms. DonMonitor's report lists it. Below the threshold it costs two debugprofilestop calls, no garbage.
+local SLOW_MS, SLOW_MAX = 15, 60
+local dps = type(debugprofilestop) == "function" and debugprofilestop or nil
+local function NoteSlow(context, fn, ms)
+  local log = rawget(_G, "DonSlowLog")
+  if type(log) ~= "table" then log = { n = 0 } DonSlowLog = log end
+  local where = "?"
+  local ok, info = pcall(debug.getinfo, fn, "S")
+  if ok and type(info) == "table" then
+    where = tostring(info.short_src or "?"):gsub("^.*AddOns.", ""):gsub("^%[string \"", ""):gsub("\"%]$", "")
+      .. ":" .. tostring(info.linedefined or "?")
+  end
+  local okT, clock = pcall(date, "%H:%M:%S")
+  log.n = (log.n or 0) + 1
+  log[(log.n - 1) % SLOW_MAX + 1] = { n = log.n, t = okT and clock or "?", a = addonName, c = tostring(context), f = where,
+    ms = math.floor(ms * 10 + 0.5) / 10 }
+end
+local function SlowDone(context, fn, t0, ...)
+  local ms = dps() - t0
+  if ms >= SLOW_MS then pcall(NoteSlow, context, fn, ms) end
+  return ...
+end
 function ns.SafeCall(context, fn, ...)
-  return Done(context, pcall(fn, ...))
+  if not dps then return Done(context, pcall(fn, ...)) end
+  return SlowDone(context, fn, dps(), Done(context, pcall(fn, ...)))
 end
 
 function ns.Guard(context, fn)
