@@ -1,12 +1,22 @@
-local _, ns = ...
+local addonName, ns = ...
 
 ---------------------------------------------------------------------------
 -- The guild: name, own rank, members with online state. Names are kept as "Name-Realm" (ns.FullName).
 -- The roster comes from the game after a request (C_GuildInfo.GuildRoster, on Era also GuildRoster) and
 -- GUILD_ROSTER_UPDATE; requests at most every 15 s, while the window is open every 60 s.
+-- (21.11.2026, Ruckler: Guildon, Crafts and Groups each rebuilt the roster in the same frame) one roster for all loaded
+-- Guildon parts: the first copy of this file makes the global GuildSharedRoster (like GuildonLauncher), the others sign
+-- in. One request, one timer and one rebuild for all; each part then runs its own PruneGone, OnRosterChanged and
+-- OnMemberOnline/Offline. The example members of /gn demo stay with the part that shows them. A copy with another
+-- ROSTER_PROTO keeps a roster of its own.
 ---------------------------------------------------------------------------
-local members, byName = {}, {}
-local lastRequest, rebuildPending = -100, false
+local ROSTER_PROTO = 1
+local R = rawget(_G, "GuildSharedRoster")
+if type(R) ~= "table" or R.proto ~= ROSTER_PROTO then
+  R = { proto = ROSTER_PROTO, members = {}, byName = {}, spare = {}, gen = 0, sorted = true, copies = {},
+    lastRequest = -100, pending = false, wasOnline = {}, spareOnline = {}, lastAt = {} }
+  if rawget(_G, "GuildSharedRoster") == nil then GuildSharedRoster = R end
+end
 local myName
 
 -- (05.11.2026, Daniel's /gn names on WoW Forever) Forever has surnames (C_PlayerInfo.ShouldDisplaySurname() true):
@@ -33,41 +43,65 @@ local function Surnames()
 end
 ns.Surnames = Surnames
 
+-- (21.11.2026, Ruckler) Realm() runs for every name (roster, every addon message): the realm the client gave is kept
+-- for the session (it never changes before a reload); while the client gives none it is asked again at most once a
+-- second, and the count over the saved names below runs once until the saved data or the realm changes
+local realmKnown, realmAskedAt = nil, -100
+local guessDb, guessChars, guessSets, guess, guessAt
+local function Now() return type(GetTime) == "function" and GetTime() or 0 end
 local function Realm()
-  local r
-  if not SurnameClient() then
-    local _, rr = ns.Call(UnitFullName, "player")
-    r = ns.Str(rr)
-  end
-  if not r then r = ns.Str(ns.Call(GetNormalizedRealmName)) end
-  if not r then r = ns.Str(ns.Call(GetRealmName)) end
-  r = r and r:gsub("[%s%-]", "")
   local db = type(ns.db) == "table" and ns.db or nil
-  if r and r ~= "" then
-    if db then db.realmName = r end
+  local r = realmKnown
+  if not r then
+    local now = Now()
+    if now - realmAskedAt >= 1 or now < realmAskedAt then
+      realmAskedAt = now
+      if not SurnameClient() then
+        local _, rr = ns.Call(UnitFullName, "player")
+        r = ns.Str(rr)
+      end
+      if not r then r = ns.Str(ns.Call(GetNormalizedRealmName)) end
+      if not r then r = ns.Str(ns.Call(GetRealmName)) end
+      r = r and r:gsub("[%s%-]", "")
+      if r == "" then r = nil end
+      realmKnown = r
+    end
+  end
+  if r then
+    if db and db.realmName ~= r then db.realmName = r end
     return r
   end
   -- (Daniel 21.11.2026, laptop: "Mairi Wipeborn" twice in a tooltip) the client can give an empty realm name for a while;
   -- then the last realm seen, else the realm most saved names carry, never "?" while one is known
   if db and type(db.realmName) == "string" and db.realmName ~= "" then return db.realmName end
+  local chars = db and type(db.chars) == "table" and db.chars or nil
+  local sets = db and type(db.sets) == "table" and db.sets or nil
+  -- "?" is counted again after 10 s: names with a realm may have come in since
+  if guess and guessDb == db and guessChars == chars and guessSets == sets and (guess ~= "?" or Now() - guessAt < 10) then
+    return guess
+  end
   local count, best, bn = {}, nil, 0
   local function Add(name)
     local x = type(name) == "string" and name:match("%-([^%-]+)$")
     if x and x ~= "?" then count[x] = (count[x] or 0) + 1 if count[x] > bn then best, bn = x, count[x] end end
   end
-  if db then
-    for k in pairs(type(db.chars) == "table" and db.chars or {}) do Add(k) end
-    for _, set in pairs(type(db.sets) == "table" and db.sets or {}) do if type(set) == "table" then Add(set.o) end end
-  end
-  return best or "?"
+  for k in pairs(chars or {}) do Add(k) end
+  for _, set in pairs(sets or {}) do if type(set) == "table" then Add(set.o) end end
+  guessDb, guessChars, guessSets, guess, guessAt = db, chars, sets, best or "?", Now()
+  return guess
 end
+-- (tests, and ns.ForgetMyName) the realm is asked again at the next name
+local function ForgetRealm() realmKnown, realmAskedAt, guess = nil, -100, nil end
 
 function ns.FullName(name)
   name = ns.Str(name)
   if not name then return nil end
   name = name:gsub("^%s+", ""):gsub("%s+$", "")
   if name:find("-", 1, true) then return name end
-  return name .. "-" .. Realm()
+  local realm = Realm()
+  -- (21.11.2026, Ruckler) a name with "-?" may get saved: ns.FixUnknownRealm runs at the next login
+  if realm == "?" and type(ns.db) == "table" then ns.db.realmDirty = true end
+  return name .. "-" .. realm
 end
 
 -- the full name of a unit ("player", "NPC" in a trade, "target"): on Forever with the surname
@@ -89,7 +123,7 @@ function ns.MyName()
   end
   return myName
 end
-function ns.ForgetMyName() myName = nil end -- (tests)
+function ns.ForgetMyName() myName = nil ForgetRealm() end -- (tests)
 
 function ns.ShortName(full)
   full = tostring(full or "")
@@ -113,8 +147,9 @@ end
 function ns.RequestRoster(force)
   if not ns.InGuild() then return end
   local now = GetTime()
-  if not force and now - lastRequest < 15 then return end
-  lastRequest = now
+  -- (21.11.2026, Ruckler) shared by all parts: a forced request of another part in the same second counts too
+  if now - R.lastRequest < (force and 1 or 15) and now >= R.lastRequest then return end
+  R.lastRequest = now
   if C_GuildInfo and type(C_GuildInfo.GuildRoster) == "function" then
     ns.Call(C_GuildInfo.GuildRoster)
   elseif type(GuildRoster) == "function" then
@@ -122,57 +157,106 @@ function ns.RequestRoster(force)
   end
 end
 
-local wasOnline = {}
+-- (21.11.2026, Ruckler) the shared rebuild: the member tables are kept and filled anew, the list is sorted only when
+-- someone asks for it (ns.Members), the realm is known once for all names, the last-online days are asked again only
+-- for members who were online before or every 5 minutes (they count whole days)
+local LAST_ONLINE_AGAIN = 300
+local function ByShort(a, b) return R.byName[a].short < R.byName[b].short end
 local function Rebuild()
-  members, byName = {}, {}
+  local list, prev, by = R.members, R.byName, R.spare
+  for k in pairs(by) do by[k] = nil end
+  local n, t = 0, GetTime()
   local total = ns.InGuild() and ns.Num(ns.Call(GetNumGuildMembers)) or 0
   for i = 1, math.min(total, 1000) do
     local ok, name, rank, rankIndex, level, class, zone, _, _, online, _, classFile = pcall(GetGuildRosterInfo, i)
     local full = ok and ns.FullName(name)
-    if full and not byName[full] then
-      local m = {
-        name = full, short = ns.ShortName(full), rank = ns.Str(rank) or "", rankIndex = ns.Num(rankIndex) or 99,
-        level = ns.Num(level) or 0, class = ns.Str(class) or "", classFile = ns.Str(classFile) or "",
-        zone = ns.Str(zone) or "", online = online == true or online == 1,
-      }
-      if not m.online and GetGuildRosterLastOnline then
+    if full and not by[full] then
+      local m = prev[full]
+      local wasOff = m ~= nil and not m.online
+      m = m or {}
+      m.name, m.short, m.rank, m.rankIndex = full, ns.ShortName(full), ns.Str(rank) or "", ns.Num(rankIndex) or 99
+      m.level, m.class, m.classFile = ns.Num(level) or 0, ns.Str(class) or "", ns.Str(classFile) or ""
+      m.zone, m.online = ns.Str(zone) or "", online == true or online == 1
+      if m.online or not GetGuildRosterLastOnline then
+        m.lastOnline = nil
+        R.lastAt[full] = nil
+      elseif not (wasOff and m.lastOnline and R.lastAt[full] and t - R.lastAt[full] < LAST_ONLINE_AGAIN and t >= R.lastAt[full]) then
+        m.lastOnline = nil
         local okL, years, months, days = pcall(GetGuildRosterLastOnline, i)
         if okL and ns.Num(days) then m.lastOnline = (ns.Num(years) or 0) * 365 + (ns.Num(months) or 0) * 30 + days end
+        R.lastAt[full] = t
       end
-      members[#members + 1] = m
-      byName[full] = m
+      n = n + 1
+      list[n] = m
+      by[full] = m
     end
   end
-  -- example members of /gn demo (Demo.lua): only on this screen, never sent to or accepted from anyone
-  for _, m in ipairs(ns.DemoMembers and ns.DemoMembers() or {}) do
-    if not byName[m.name] then members[#members + 1] = m byName[m.name] = m end
-  end
-  table.sort(members, function(a, b)
-    if a.online ~= b.online then return a.online end
-    return a.short < b.short
-  end)
-  -- who just came online (not at the first roster of the session)
-  local first = next(wasOnline) == nil
-  local now = {}
-  for _, m in ipairs(members) do
+  for i = #list, n + 1, -1 do list[i] = nil end
+  for full in pairs(prev) do if not by[full] then R.lastAt[full] = nil end end
+  R.byName, R.spare = by, prev
+  R.gen, R.sorted = R.gen + 1, false
+  -- who just came online (not at the first roster of the session) and who just went offline
+  local was, now = R.wasOnline, R.spareOnline
+  for k in pairs(now) do now[k] = nil end
+  local first = next(was) == nil
+  local up, down
+  for i = 1, n do
+    local m = list[i]
     now[m.name] = m.online
-    if m.online and wasOnline[m.name] == false and not first and ns.OnMemberOnline and m.name ~= ns.MyName() then
-      ns.SafeCall("member online", ns.OnMemberOnline, m.name)
-    end
-    -- (04.11.2026) and who just went offline (Guildon's map takes him off at once)
-    if not m.online and wasOnline[m.name] == true and ns.OnMemberOffline and m.name ~= ns.MyName() then
-      ns.SafeCall("member offline", ns.OnMemberOffline, m.name)
-    end
+    if m.online and was[m.name] == false and not first then up = up or {} up[#up + 1] = m.name end
+    if not m.online and was[m.name] == true then down = down or {} down[#down + 1] = m.name end
   end
-  wasOnline = now
+  R.wasOnline, R.spareOnline = now, was
+  -- in the order of the sorted list, as before
+  if up and #up > 1 then table.sort(up, ByShort) end
+  if down and #down > 1 then table.sort(down, ByShort) end
+  for _, c in ipairs(R.copies) do c.moved(up, down) end
 end
 
-function ns.Members() return members end
-function ns.Member(full) return full and byName[full] or nil end
-function ns.IsMember(full) return full ~= nil and (byName[full] ~= nil or full == ns.MyName()) end
-function ns.IsOnline(full) local m = byName[full or ""] return m and m.online or full == ns.MyName() end
+-- this part's view: the shared roster, with the example members of /gn demo (Demo.lua) added when they are on; those
+-- are only on this screen, never sent to or accepted from anyone
+local NONE = {}
+local view, viewBy, viewGen, viewDemo, viewSorted
+local function View()
+  local demo = ns.DemoMembers and ns.DemoMembers() or NONE
+  if #demo == 0 then return R.members, nil end
+  if viewGen ~= R.gen or viewDemo ~= demo or not view then
+    view, viewBy = {}, {}
+    for i, m in ipairs(R.members) do view[i] = m end
+    for _, m in ipairs(demo) do
+      if not R.byName[m.name] and not viewBy[m.name] then view[#view + 1] = m viewBy[m.name] = m end
+    end
+    viewGen, viewDemo, viewSorted = R.gen, demo, false
+  end
+  return view, viewBy
+end
+local function Online(a, b)
+  if a.online ~= b.online then return a.online end
+  return a.short < b.short
+end
+
+-- online first, then by name
+function ns.Members()
+  local list = View()
+  if list == R.members then
+    if not R.sorted then table.sort(list, Online) R.sorted = true end
+  elseif not viewSorted then
+    table.sort(list, Online) viewSorted = true
+  end
+  return list
+end
+local function Lookup(full)
+  local m = R.byName[full]
+  if m then return m end
+  local _, by = View()
+  return by and by[full] or nil
+end
+function ns.Member(full) return full and Lookup(full) or nil end
+function ns.IsMember(full) return full ~= nil and (Lookup(full) ~= nil or full == ns.MyName()) end
+function ns.IsOnline(full) local m = Lookup(full or "") return m and m.online or full == ns.MyName() end
 
 function ns.MemberCounts()
+  local members = View()
   local online, guildon, guildonOnline = 0, 0, 0
   for _, m in ipairs(members) do
     if m.online then online = online + 1 end
@@ -207,15 +291,41 @@ end
 -- (31.10.2026, LEISTUNG_PRUEFUNG 21) a big guild fires GUILD_ROSTER_UPDATE often: rebuilt at most every ROSTER_SLOW
 -- seconds while the window is closed, every half second while it is open and before the first roster
 local ROSTER_SLOW = 3
-local function RosterChanged()
-  if rebuildPending then return end
-  rebuildPending = true
-  local open = ns.WindowOpen and ns.WindowOpen()
-  ns.After((open or #members == 0) and 0.5 or ROSTER_SLOW, function()
-    rebuildPending = false
-    Rebuild()
+
+-- (21.11.2026, Ruckler) this part signs in to the shared roster: asked whether its window is open, told who came online
+-- or went offline after every rebuild, and told when the roster changed (its prune and its open page)
+R.copies[#R.copies + 1] = {
+  id = addonName,
+  open = function() return ns.WindowOpen and ns.WindowOpen() and true or false end,
+  empty = function() return #View() == 0 end,
+  moved = function(up, down)
+    local me = (up or down) and ns.MyName()
+    for _, name in ipairs(up or NONE) do
+      if ns.OnMemberOnline and name ~= me then ns.SafeCall("member online", ns.OnMemberOnline, name) end
+    end
+    -- (04.11.2026) and who just went offline (Guildon's map takes him off at once)
+    for _, name in ipairs(down or NONE) do
+      if ns.OnMemberOffline and name ~= me then ns.SafeCall("member offline", ns.OnMemberOffline, name) end
+    end
+  end,
+  changed = function()
+    if not ns.db then return end
     if ns.PruneGone then ns.SafeCall("prune", ns.PruneGone) end
-    if ns.OnRosterChanged then ns.OnRosterChanged() end
+    if ns.OnRosterChanged then ns.SafeCall("roster", ns.OnRosterChanged) end
+  end,
+}
+
+local function RosterChanged()
+  if R.pending then return end
+  R.pending = true
+  local fast = false
+  for _, c in ipairs(R.copies) do
+    if c.open() or c.empty() then fast = true break end
+  end
+  ns.After(fast and 0.5 or ROSTER_SLOW, function()
+    R.pending = false
+    Rebuild()
+    for _, c in ipairs(R.copies) do c.changed() end
   end)
 end
 
@@ -275,6 +385,8 @@ end
 
 -- (Daniel 21.11.2026) names saved or received while the realm was unknown ("Mairi Wipeborn-?") move to the realm once it
 -- is known, so one character is never listed twice; an entry under the right name wins
+-- (21.11.2026, Ruckler) at login only when needed: once over the whole saved data (db.realmFix), then only after a name
+-- with "-?" was made (ns.FullName) or received (GuildShared/Comm.lua) (db.realmDirty)
 function ns.FixUnknownRealm()
   local db = ns.db
   if type(db) ~= "table" then return false end
@@ -290,14 +402,16 @@ function ns.FixUnknownRealm()
     end
   end
   if any then Rename(db, map, 0) ns.ForgetMyName() end
+  db.realmFix, db.realmDirty = 1, nil
   return any
 end
 
 ns.On("PLAYER_LOGIN", function()
   ns.SafeCall("surnames", ns.MigrateSurnames)
-  ns.SafeCall("realm", ns.FixUnknownRealm)
+  if ns.db.realmFix ~= 1 or ns.db.realmDirty then ns.SafeCall("realm", ns.FixUnknownRealm) end
   ns.RequestRoster(true) RosterChanged()
 end)
+-- (21.11.2026, Ruckler) one request for all parts (ns.RequestRoster keeps the time in the shared roster)
 ns.On("PLAYER_ENTERING_WORLD", function() ns.RequestRoster() end)
 
-function ns.RebuildRoster() Rebuild() end -- (tests)
+function ns.RebuildRoster() Rebuild() end -- (tests, /gn demo)

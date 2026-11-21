@@ -418,6 +418,8 @@ local function OnPiece(sender, kind, owner, stamp, sum, i, n, chunk, prefix, del
   local old = ns.db.sets[key]
   if old and old.t > stamp then return end
   ns.db.sets[key] = { k = kind, o = owner, t = stamp, s = sum, d = data }
+  -- (21.11.2026, Ruckler) an owner with an unknown realm: ns.FixUnknownRealm runs at the next login (GuildShared/Guild.lua)
+  if type(owner) == "string" and owner:sub(-2) == "-?" then ns.db.realmDirty = true end
   stats.stored = stats.stored + 1
   if def.onUpdate then ns.SafeCall("set " .. kind, def.onUpdate, owner) end
   if ns.OnDataChanged then ns.OnDataChanged(kind, owner) end

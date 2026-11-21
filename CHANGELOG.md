@@ -1,5 +1,9 @@
 # Changes
 
+## 1.3.4
+
+- **Smoother play:** fixed short stutters. When the game reports no realm name (it can stay empty for a whole session on WoW Forever), every guild name made the addon count through all saved data; the realm is now remembered. Guildon and Guildon: Crafts also share one guild roster instead of each rebuilding it in the same moment, and incoming addon messages of other addons are skipped earlier.
+
 ## 1.3.3
 
 - **Names listed twice:** when the game briefly reports an empty realm name, a guild member could appear twice (once with the realm in the name). The last known realm is used now, and names saved that way are merged on login.

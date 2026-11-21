@@ -44,13 +44,14 @@ end
 
 function ns.Errors() return errors end
 
-function ns.SafeCall(context, fn, ...)
-  local args, n = { ... }, select("#", ...)
-  local ok, a, b, c = xpcall(function() return fn(unpack(args, 1, n)) end, function(err)
-    pcall(Record, context, err)
-    return err
-  end)
+-- (21.11.2026, Ruckler) pcall with the arguments directly: no table and no closures per call (every event, every
+-- listener); the error is recorded only when there is one (the same message the handler of xpcall got)
+local function Done(context, ok, a, b, c)
   if ok then return a, b, c end
+  pcall(Record, context, a)
+end
+function ns.SafeCall(context, fn, ...)
+  return Done(context, pcall(fn, ...))
 end
 
 function ns.Guard(context, fn)
@@ -100,6 +101,12 @@ frame:SetScript("OnEvent", function(_, event, ...)
     return
   end
   if not ns.db then return end
+  -- (21.11.2026, Ruckler) addon messages of other addons never reach the listeners: only GuildShared/Comm.lua reads
+  -- CHAT_MSG_ADDON, and it takes only ns.PREFIX and ns.LEGACY_PREFIX
+  if event == "CHAT_MSG_ADDON" and ns.PREFIX then
+    local prefix = ...
+    if prefix ~= ns.PREFIX and (ns.LEGACY_PREFIX == nil or prefix ~= ns.LEGACY_PREFIX) then return end
+  end
   local list = listeners[event]
   if list then
     for i = 1, #list do ns.SafeCall(event, list[i], event, ...) end
