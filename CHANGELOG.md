@@ -1,5 +1,9 @@
 # Changes
 
+## 1.3.3
+
+- **Names listed twice:** when the game briefly reports an empty realm name, a guild member could appear twice (once with the realm in the name). The last known realm is used now, and names saved that way are merged on login.
+
 ## 1.3.2
 
 - **One option for the window style:** the switch "Windows in the game's look" is now the choice "Window style" with "Don look" and "Blizzard look", named the same in every Don addon. Your setting stays as it was.

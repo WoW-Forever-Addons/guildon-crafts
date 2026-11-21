@@ -41,7 +41,25 @@ local function Realm()
   end
   if not r then r = ns.Str(ns.Call(GetNormalizedRealmName)) end
   if not r then r = ns.Str(ns.Call(GetRealmName)) end
-  return r and r:gsub("[%s%-]", "") or "?"
+  r = r and r:gsub("[%s%-]", "")
+  local db = type(ns.db) == "table" and ns.db or nil
+  if r and r ~= "" then
+    if db then db.realmName = r end
+    return r
+  end
+  -- (Daniel 21.11.2026, laptop: "Mairi Wipeborn" twice in a tooltip) the client can give an empty realm name for a while;
+  -- then the last realm seen, else the realm most saved names carry, never "?" while one is known
+  if db and type(db.realmName) == "string" and db.realmName ~= "" then return db.realmName end
+  local count, best, bn = {}, nil, 0
+  local function Add(name)
+    local x = type(name) == "string" and name:match("%-([^%-]+)$")
+    if x and x ~= "?" then count[x] = (count[x] or 0) + 1 if count[x] > bn then best, bn = x, count[x] end end
+  end
+  if db then
+    for k in pairs(type(db.chars) == "table" and db.chars or {}) do Add(k) end
+    for _, set in pairs(type(db.sets) == "table" and db.sets or {}) do if type(set) == "table" then Add(set.o) end end
+  end
+  return best or "?"
 end
 
 function ns.FullName(name)
@@ -255,8 +273,29 @@ function ns.MigrateSurnames()
   return true
 end
 
+-- (Daniel 21.11.2026) names saved or received while the realm was unknown ("Mairi Wipeborn-?") move to the realm once it
+-- is known, so one character is never listed twice; an entry under the right name wins
+function ns.FixUnknownRealm()
+  local db = ns.db
+  if type(db) ~= "table" then return false end
+  local realm = Realm()
+  if realm == "?" then return false end
+  local map, any = {}, false
+  local function Add(name)
+    if type(name) == "string" and name:sub(-2) == "-?" and #name > 2 then map[name] = name:sub(1, -3) .. "-" .. realm any = true end
+  end
+  for _, t in pairs(db) do
+    if type(t) == "table" then
+      for k, v in pairs(t) do Add(k) if type(v) == "table" then Add(v.o) end end
+    end
+  end
+  if any then Rename(db, map, 0) ns.ForgetMyName() end
+  return any
+end
+
 ns.On("PLAYER_LOGIN", function()
   ns.SafeCall("surnames", ns.MigrateSurnames)
+  ns.SafeCall("realm", ns.FixUnknownRealm)
   ns.RequestRoster(true) RosterChanged()
 end)
 ns.On("PLAYER_ENTERING_WORLD", function() ns.RequestRoster() end)
