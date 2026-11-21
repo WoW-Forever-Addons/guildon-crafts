@@ -32,8 +32,10 @@ local ITEMS = {
   { header = "Window" },
   { key = "showProfit", name = "Tab Profitable", tip = "Recipes by profit per craft from auction prices. Off by default." },
   -- (16.11.2026, Daniel: the Blizzard look as the default for all Don addons) the windows from the game's own templates
-  { key = "blizzLook", name = "Windows in the game's look",
-    tip = "Guildon Crafts's window, the wish form and the bar at the mailbox look like the game's own: the game's frame, tabs, buttons and lists. Without the game's templates (Classic Era) the windows keep the Don look. The options then open in the game's settings (Options > AddOns > Guildon: Crafts & Recipes) after a /reload." },
+  -- (20.11.2026, Daniel: the same option in every Don addon) the choice "Window style" with "Don look" / "Blizzard look" from
+  -- DonCore (Libs\DonCore\Settings.lua minor 6, ns.LookOption after Settings:Attach in Core.lua), still on db.blizzLook
+  -- (true/false). No onChange: Changed() below handles blizzLook for DonCore's window and the game's settings.
+  ns.LookOption({ addon = "Guildon Crafts", category = "Guildon: Crafts & Recipes" }),
   { key = "minimapButton", name = "Minimap button", tip = "Shows the Guildon button at the minimap. All Guildon parts share it." },
   { kind = "button", optKey = "button:resetWindow", name = "Reset window position", button = "Reset",
     tip = "Puts the Guildon Crafts window back in the middle of the screen at its first size.", onClick = function() if ns.ResetWindow then ns.ResetWindow() end end },

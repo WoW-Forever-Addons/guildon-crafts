@@ -390,8 +390,6 @@ L["Price: %s (bought)"] = "가격: %s (구매가)"
 L["Reagents: %s (bought, rest auction house average)"] = "재료: %s (구매가, 나머지는 경매장 평균)"
 L["(bought)"] = "(구매가)"
 -- (16.11.2026) the Blizzard look (option blizzLook)
-L["Windows in the game's look"] = "게임 스타일의 창"
-L["Guildon Crafts's window, the wish form and the bar at the mailbox look like the game's own: the game's frame, tabs, buttons and lists. Without the game's templates (Classic Era) the windows keep the Don look. The options then open in the game's settings (Options > AddOns > Guildon: Crafts & Recipes) after a /reload."] = "Guildon Crafts 창, 소원 양식, 우편함 막대가 게임 자체의 모양이 됩니다: 게임의 테두리, 탭, 버튼, 목록. 게임 템플릿이 없으면(클래식 에라) 창은 Don 스타일로 유지됩니다. 설정은 /reload 후 게임 설정(설정 > 애드온 > Guildon: Crafts & Recipes)에서 열립니다."
 L["The window could not be built in the game's look, it opens in the Don look. %s says why."] = "창을 게임 스타일로 만들 수 없어 Don 스타일로 엽니다. %s에서 이유를 볼 수 있습니다."
 -- (16.11.2026) the options as pages in the game's settings (Options.lua, DonCore Settings 4)
 L["Settings"] = "설정"

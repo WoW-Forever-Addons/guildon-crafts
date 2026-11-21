@@ -1,5 +1,11 @@
 # Changes
 
+## 1.3.2
+
+- **One option for the window style:** the switch "Windows in the game's look" is now the choice "Window style" with "Don look" and "Blizzard look", named the same in every Don addon. Your setting stays as it was.
+- **Recipe data:** refreshed (21 November).
+- **Shared Don library:** updated to the current version of the Don addons.
+
 ## 1.3.1
 
 - **Recipe card:** search and filter buttons span the whole window, list and card sit below. The card closes with its X, a second click on the row or Esc (outside combat); without a choice the list takes the full width.

@@ -390,8 +390,6 @@ L["Price: %s (bought)"] = "價格：%s（購入價）"
 L["Reagents: %s (bought, rest auction house average)"] = "材料：%s（購入價，其餘為拍賣場平均）"
 L["(bought)"] = "（購入價）"
 -- (16.11.2026) the Blizzard look (option blizzLook)
-L["Windows in the game's look"] = "遊戲風格的視窗"
-L["Guildon Crafts's window, the wish form and the bar at the mailbox look like the game's own: the game's frame, tabs, buttons and lists. Without the game's templates (Classic Era) the windows keep the Don look. The options then open in the game's settings (Options > AddOns > Guildon: Crafts & Recipes) after a /reload."] = "Guildon Crafts 的視窗、願望表單和信箱旁的列都會使用遊戲本身的外觀：遊戲的框架、分頁、按鈕和清單。沒有遊戲範本時（經典時代）視窗維持 Don 風格。/reload 之後，選項會在遊戲的設定中開啟（選項 > 插件 > Guildon: Crafts & Recipes）。"
 L["The window could not be built in the game's look, it opens in the Don look. %s says why."] = "無法以遊戲風格建立視窗，改以 Don 風格開啟。%s 會說明原因。"
 -- (16.11.2026) the options as pages in the game's settings (Options.lua, DonCore Settings 4)
 L["Settings"] = "設定"

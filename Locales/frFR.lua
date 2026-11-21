@@ -391,8 +391,6 @@ L["Price: %s (bought)"] = "Prix : %s (acheté)"
 L["Reagents: %s (bought, rest auction house average)"] = "Composants : %s (achetés, reste moyenne HV)"
 L["(bought)"] = "(acheté)"
 -- (16.11.2026) the Blizzard look (option blizzLook)
-L["Windows in the game's look"] = "Fenêtres dans le style du jeu"
-L["Guildon Crafts's window, the wish form and the bar at the mailbox look like the game's own: the game's frame, tabs, buttons and lists. Without the game's templates (Classic Era) the windows keep the Don look. The options then open in the game's settings (Options > AddOns > Guildon: Crafts & Recipes) after a /reload."] = "La fenêtre de Guildon Crafts, le formulaire de souhait et la barre de la boîte aux lettres ressemblent à celles du jeu : cadre, onglets, boutons et listes du jeu. Sans les modèles du jeu (Classic Era), les fenêtres gardent le style Don. Les options s'ouvrent alors dans les réglages du jeu (Options > AddOns > Guildon: Crafts & Recipes) après un /reload."
 L["The window could not be built in the game's look, it opens in the Don look. %s says why."] = "La fenêtre n'a pas pu être construite dans le style du jeu, elle s'ouvre dans le style Don. %s indique pourquoi."
 -- (16.11.2026) the options as pages in the game's settings (Options.lua, DonCore Settings 4)
 L["Settings"] = "Réglages"
