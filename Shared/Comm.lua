@@ -344,8 +344,10 @@ end
 local lastPrune = -1000
 function ns.PruneGone(force)
   local db = ns.db
-  if not db or not ns.InGuild() or #ns.Members() == 0 then return end -- no roster yet: nothing is known
+  -- (22.11.2026, Ruckler, DonMonitor report: timer Guild.lua:325 avg 27 ms every 4-6 s) the minute first and the roster
+  -- asked without ns.Members(): that sorted the whole list after every rebuild
   if not force and GetTime() - lastPrune < 60 then return end
+  if not db or not ns.InGuild() or not ns.HasRoster() then return end -- no roster yet: nothing is known
   lastPrune = GetTime()
   db.gone = db.gone or {}
   local gone, now, keep = db.gone, time(), GONE_DAYS * 86400
@@ -442,6 +444,9 @@ function ns.Receive(prefix, text, chat, sender)
   local raw = ns.rawSenders
   if type(sender) == "string" and not raw[sender] and raw.n < 8 then raw.n = raw.n + 1 raw[sender] = chat raw[raw.n] = sender end
   sender = ns.FullName(sender)
+  -- (22.11.2026, Ruckler) the roster is no longer rebuilt at every update: a guild message from a name it does not
+  -- have (he just joined) asks for it
+  if sender and chat == "GUILD" and sender ~= ns.MyName() and not ns.IsMember(sender) then ns.RosterMiss() end
   if not sender or sender == ns.MyName() or not ns.IsMember(sender) or ns.IsDemo(sender) then return end
   stats.received = stats.received + 1
   offline[sender] = nil -- heard again: whispers to him go out again

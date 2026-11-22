@@ -53,17 +53,31 @@ end
 -- (21.11.2026, Ruckler, Daniel: "monitor ... dass ich das im spiel testen kann") every protected call that takes
 -- SLOW_MS or more goes into the global ring DonSlowLog (60 entries, not saved): addon, context, the function's file and
 -- line, ms. DonMonitor's report lists it. Below the threshold it costs two debugprofilestop calls, no garbage.
-local SLOW_MS, SLOW_MAX = 15, 60
+local SLOW_MS, SLOW_MAX = 8, 200 -- (22.11.2026) 8 ms as DonMonitor's hitch threshold; the report sums them up
 local dps = type(debugprofilestop) == "function" and debugprofilestop or nil
+-- (22.11.2026) where a listener, ticker or timer was made: "File.lua:123" of the first line outside this file
+local fnWhere = setmetatable({}, { __mode = "k" })
+local function Where(level)
+  if type(debugstack) ~= "function" then return nil end
+  local ok, stack = pcall(debugstack, level, 6, 0)
+  if not ok or type(stack) ~= "string" then return nil end
+  local first
+  for file, line in stack:gsub("\\", "/"):gmatch('([%w_]+%.lua)["%]]*:(%d+)') do
+    local at = file .. ":" .. line
+    if file ~= "Base.lua" then return at end
+    first = first or at
+  end
+  return first
+end
+local function NoteWhere(fn, level)
+  if type(fn) == "function" and not fnWhere[fn] then fnWhere[fn] = Where(level + 1) end
+end
 local function NoteSlow(context, fn, ms)
   local log = rawget(_G, "DonSlowLog")
   if type(log) ~= "table" then log = { n = 0 } DonSlowLog = log end
-  local where = "?"
-  local ok, info = pcall(debug.getinfo, fn, "S")
-  if ok and type(info) == "table" then
-    where = tostring(info.short_src or "?"):gsub("^.*AddOns.", ""):gsub("^%[string \"", ""):gsub("\"%]$", "")
-      .. ":" .. tostring(info.linedefined or "?")
-  end
+  -- (22.11.2026) the game has no debug.getinfo (the lookup threw, pcall swallowed it, nothing was ever noted): the
+  -- place comes from fnWhere (noted with debugstack when the listener, ticker or timer was made)
+  local where = fnWhere[fn] or "?"
   local okT, clock = pcall(date, "%H:%M:%S")
   log.n = (log.n or 0) + 1
   log[(log.n - 1) % SLOW_MAX + 1] = { n = log.n, t = okT and clock or "?", a = addonName, c = tostring(context), f = where,
@@ -84,10 +98,13 @@ function ns.Guard(context, fn)
 end
 
 function ns.After(delay, fn)
+  -- (22.11.2026) the place of a timer only while DonMonitor runs (timers are made often, a debugstack each)
+  if rawget(_G, "DonMonitorDB") then NoteWhere(fn, 2) end
   if C_Timer and C_Timer.After then C_Timer.After(delay, ns.Guard("timer", fn)) end
 end
 
 function ns.NewTicker(delay, fn)
+  NoteWhere(fn, 2)
   if C_Timer and C_Timer.NewTicker then return C_Timer.NewTicker(delay, ns.Guard("ticker", fn)) end
 end
 
@@ -104,10 +121,11 @@ function ns.On(event, fn)
     if not ok then listeners[event] = nil return false end
   end
   table.insert(listeners[event], fn)
+  NoteWhere(fn, 2)
   return true
 end
 
-function ns.OnInit(fn) table.insert(initCallbacks, fn) end
+function ns.OnInit(fn) NoteWhere(fn, 2) table.insert(initCallbacks, fn) end
 
 frame:RegisterEvent("ADDON_LOADED")
 frame:SetScript("OnEvent", function(_, event, ...)

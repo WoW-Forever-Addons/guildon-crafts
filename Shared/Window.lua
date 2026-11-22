@@ -271,8 +271,9 @@ end
 
 function ns.ToggleWindow()
   if (not win or not win:IsShown()) and ns.ReadKnown then ns.ReadKnown() end -- Era: the recipes the character knows, without the profession window
-  if not win then Create() win:Show() Front() ns.RequestRoster() return end
-  if win:IsShown() then win:Hide() else win:Show() Front() ns.RequestRoster() ns.Refresh() end
+  -- (22.11.2026, Ruckler) ns.RosterWanted: roster updates skipped while the windows were closed are caught up
+  if not win then Create() win:Show() Front() ns.RequestRoster() ns.RosterWanted() return end
+  if win:IsShown() then win:Hide() else win:Show() Front() ns.RequestRoster() ns.RosterWanted() ns.Refresh() end
 end
 
 function ns.OpenTab(key)
@@ -282,6 +283,7 @@ function ns.OpenTab(key)
   Front()
   Select(key)
   ns.RequestRoster()
+  ns.RosterWanted()
 end
 
 -- (options) the window back to the middle of the screen at its first size

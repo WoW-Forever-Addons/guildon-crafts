@@ -1,5 +1,9 @@
 # Changes
 
+## 1.3.6
+
+- **Smoother play:** fixed a short stutter every few seconds. With the windows closed the guild roster is no longer read anew after every update the game sends, only when the number of members or of members online changed, and at most every 10 seconds.
+
 ## 1.3.5
 
 - **Data of 21 November:** recipe data refreshed with the recordings of more players.

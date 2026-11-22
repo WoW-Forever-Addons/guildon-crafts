@@ -17,6 +17,8 @@ if type(R) ~= "table" or R.proto ~= ROSTER_PROTO then
     lastRequest = -100, pending = false, wasOnline = {}, spareOnline = {}, lastAt = {} }
   if rawget(_G, "GuildSharedRoster") == nil then GuildSharedRoster = R end
 end
+-- (22.11.2026, Ruckler) fields an older copy of this file did not make (it may have made the shared roster)
+R.full, R.fullN, R.memberGen = R.full or {}, R.fullN or 0, R.memberGen or 0
 local myName
 
 -- (05.11.2026, Daniel's /gn names on WoW Forever) Forever has surnames (C_PlayerInfo.ShouldDisplaySurname() true):
@@ -160,21 +162,42 @@ end
 -- (21.11.2026, Ruckler) the shared rebuild: the member tables are kept and filled anew, the list is sorted only when
 -- someone asks for it (ns.Members), the realm is known once for all names, the last-online days are asked again only
 -- for members who were online before or every 5 minutes (they count whole days)
+-- (22.11.2026, Ruckler, DonMonitor report: timer Guild.lua:325 avg 27 ms every 4-6 s) the full name of a roster name is
+-- kept while the realm stays the same and the short name of a member already known is not made again (two gsub, a find
+-- and a match per member and rebuild before); the counts the game gives (members, online) are kept with the time, so
+-- RosterChanged can tell cheaply whether anything changed; R.memberGen counts the rebuilds that changed who is a member
 local LAST_ONLINE_AGAIN = 300
 local function ByShort(a, b) return R.byName[a].short < R.byName[b].short end
+local function Counts()
+  if not ns.InGuild() then return 0, 0 end
+  local total, online = ns.Call(GetNumGuildMembers)
+  return ns.Num(total) or 0, ns.Num(online)
+end
 local function Rebuild()
   local list, prev, by = R.members, R.byName, R.spare
   for k in pairs(by) do by[k] = nil end
   local n, t = 0, GetTime()
-  local total = ns.InGuild() and ns.Num(ns.Call(GetNumGuildMembers)) or 0
+  local total, onlineCount = Counts()
+  local realm, cache = Realm(), R.full
+  local sameRealm = R.fullRealm == realm
+  if not sameRealm or R.fullN > 3000 then
+    for k in pairs(cache) do cache[k] = nil end
+    R.fullRealm, R.fullN = realm, 0
+  end
+  local before, joined = #list, false
   for i = 1, math.min(total, 1000) do
     local ok, name, rank, rankIndex, level, class, zone, _, _, online, _, classFile = pcall(GetGuildRosterInfo, i)
-    local full = ok and ns.FullName(name)
+    local full = ok and type(name) == "string" and cache[name]
+    if ok and not full then
+      full = ns.FullName(name)
+      if full and realm ~= "?" and type(name) == "string" then cache[name] = full R.fullN = R.fullN + 1 end
+    end
     if full and not by[full] then
       local m = prev[full]
       local wasOff = m ~= nil and not m.online
-      m = m or {}
-      m.name, m.short, m.rank, m.rankIndex = full, ns.ShortName(full), ns.Str(rank) or "", ns.Num(rankIndex) or 99
+      if not m then m, joined = {}, true end
+      if not (sameRealm and m.short and m.name == full) then m.short = ns.ShortName(full) end
+      m.name, m.rank, m.rankIndex = full, ns.Str(rank) or "", ns.Num(rankIndex) or 99
       m.level, m.class, m.classFile = ns.Num(level) or 0, ns.Str(class) or "", ns.Str(classFile) or ""
       m.zone, m.online = ns.Str(zone) or "", online == true or online == 1
       if m.online or not GetGuildRosterLastOnline then
@@ -195,6 +218,8 @@ local function Rebuild()
   for full in pairs(prev) do if not by[full] then R.lastAt[full] = nil end end
   R.byName, R.spare = by, prev
   R.gen, R.sorted = R.gen + 1, false
+  if joined or n ~= before then R.memberGen = R.memberGen + 1 end
+  R.seenTotal, R.seenOnline, R.builtAt, R.skipped = total, onlineCount, t, false
   -- who just came online (not at the first roster of the session) and who just went offline
   local was, now = R.wasOnline, R.spareOnline
   for k in pairs(now) do now[k] = nil end
@@ -255,6 +280,9 @@ function ns.Member(full) return full and Lookup(full) or nil end
 function ns.IsMember(full) return full ~= nil and (Lookup(full) ~= nil or full == ns.MyName()) end
 function ns.IsOnline(full) local m = Lookup(full or "") return m and m.online or full == ns.MyName() end
 
+-- (22.11.2026, Ruckler) is there a roster at all, without sorting the list (ns.PruneGone after every rebuild)
+function ns.HasRoster() return #View() > 0 end
+
 function ns.MemberCounts()
   local members = View()
   local online, guildon, guildonOnline = 0, 0, 0
@@ -290,7 +318,16 @@ end
 
 -- (31.10.2026, LEISTUNG_PRUEFUNG 21) a big guild fires GUILD_ROSTER_UPDATE often: rebuilt at most every ROSTER_SLOW
 -- seconds while the window is closed, every half second while it is open and before the first roster
+-- (22.11.2026, Ruckler, DonMonitor report: timer Guild.lua:325 avg 27 ms every 4-6 s, all windows closed) with the
+-- windows closed an update is looked at cheaply first: while the game's counts of members and of members online are
+-- the ones of the last rebuild, nothing runs (no timer) until ROSTER_IDLE seconds have passed (zones, levels, one
+-- member going as another comes); ROSTER_BLIND where the client gives no count of members online. Changed counts
+-- rebuild after ROSTER_SLOW seconds as before, yet at most every ROSTER_GAP seconds. What was skipped is caught up
+-- when a window opens (ns.RosterWanted) and when a guild message comes from a name the roster does not have
+-- (ns.RosterMiss, GuildShared/Comm.lua). With a window open and before the first roster nothing changed.
 local ROSTER_SLOW = 3
+local ROSTER_GAP, ROSTER_IDLE, ROSTER_BLIND, MISS_AGAIN, PRUNE_AGAIN = 10, 60, 15, 30, 600
+local prunedGen, prunedAt = nil, -1000
 
 -- (21.11.2026, Ruckler) this part signs in to the shared roster: asked whether its window is open, told who came online
 -- or went offline after every rebuild, and told when the roster changed (its prune and its open page)
@@ -308,29 +345,62 @@ R.copies[#R.copies + 1] = {
       if ns.OnMemberOffline and name ~= me then ns.SafeCall("member offline", ns.OnMemberOffline, name) end
     end
   end,
+  -- (22.11.2026, Ruckler) the prune only when who is a member changed, else every 10 minutes (it has its own minute too)
   changed = function()
     if not ns.db then return end
-    if ns.PruneGone then ns.SafeCall("prune", ns.PruneGone) end
+    local t = GetTime()
+    if ns.PruneGone and (prunedGen ~= R.memberGen or t - prunedAt >= PRUNE_AGAIN or t < prunedAt) then
+      prunedGen, prunedAt = R.memberGen, t
+      ns.SafeCall("prune", ns.PruneGone)
+    end
     if ns.OnRosterChanged then ns.SafeCall("roster", ns.OnRosterChanged) end
   end,
 }
 
-local function RosterChanged()
+-- force: not looked at cheaply first (login, the own guild changed, a window opened, an unknown sender)
+local function RosterChanged(force)
   if R.pending then return end
-  R.pending = true
   local fast = false
   for _, c in ipairs(R.copies) do
     if c.open() or c.empty() then fast = true break end
   end
-  ns.After(fast and 0.5 or ROSTER_SLOW, function()
+  local delay = fast and 0.5 or ROSTER_SLOW
+  if not fast and force ~= true then
+    local age = R.builtAt and GetTime() - R.builtAt or -1
+    if age >= 0 then
+      local total, online = Counts()
+      if total == R.seenTotal and online == R.seenOnline and age < (online and ROSTER_IDLE or ROSTER_BLIND) then
+        R.skipped = true
+        return
+      end
+      if ROSTER_GAP - age > delay then delay = ROSTER_GAP - age end
+    end
+  end
+  R.pending = true
+  ns.After(delay, function()
     R.pending = false
     Rebuild()
     for _, c in ipairs(R.copies) do c.changed() end
   end)
 end
 
-ns.On("GUILD_ROSTER_UPDATE", RosterChanged)
-ns.On("PLAYER_GUILD_UPDATE", function() ns.RequestRoster(true) RosterChanged() end)
+-- a window opens: updates skipped while all were closed are caught up at once (half a second, as with every update
+-- while it is open)
+function ns.RosterWanted()
+  if R.skipped then RosterChanged(true) end
+end
+-- a message in the guild channel from a name the roster does not have (he just joined): asked for and rebuilt soon,
+-- at most every MISS_AGAIN seconds
+function ns.RosterMiss()
+  local t = GetTime()
+  if R.missAt and t - R.missAt < MISS_AGAIN and t >= R.missAt then return end
+  R.missAt = t
+  ns.RequestRoster()
+  RosterChanged(true)
+end
+
+ns.On("GUILD_ROSTER_UPDATE", function() RosterChanged() end)
+ns.On("PLAYER_GUILD_UPDATE", function() ns.RequestRoster(true) RosterChanged(true) end)
 -- (05.11.2026) once on WoW Forever: the own characters were kept as "Mae-Wipeborn" (first name, the surname taken for
 -- the realm); now "Mae Wipeborn-<realm>". Every key and text of the saved data that names one of them is renamed
 -- (characters, sets, professions, wishes "<owner>#<id>", alts "1;A;B"); an entry under the new name wins. Other
@@ -409,7 +479,7 @@ end
 ns.On("PLAYER_LOGIN", function()
   ns.SafeCall("surnames", ns.MigrateSurnames)
   if ns.db.realmFix ~= 1 or ns.db.realmDirty then ns.SafeCall("realm", ns.FixUnknownRealm) end
-  ns.RequestRoster(true) RosterChanged()
+  ns.RequestRoster(true) RosterChanged(true)
 end)
 -- (21.11.2026, Ruckler) one request for all parts (ns.RequestRoster keeps the time in the shared roster)
 ns.On("PLAYER_ENTERING_WORLD", function() ns.RequestRoster() end)
