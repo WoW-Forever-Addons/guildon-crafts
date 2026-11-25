@@ -446,7 +446,7 @@ function ns.Receive(prefix, text, chat, sender)
   sender = ns.FullName(sender)
   -- (22.11.2026, Ruckler) the roster is no longer rebuilt at every update: a guild message from a name it does not
   -- have (he just joined) asks for it
-  if sender and chat == "GUILD" and sender ~= ns.MyName() and not ns.IsMember(sender) then ns.RosterMiss() end
+  if sender and chat == "GUILD" and sender ~= ns.MyName() and not ns.IsMember(sender) then ns.RosterMiss(sender) end
   if not sender or sender == ns.MyName() or not ns.IsMember(sender) or ns.IsDemo(sender) then return end
   stats.received = stats.received + 1
   offline[sender] = nil -- heard again: whispers to him go out again

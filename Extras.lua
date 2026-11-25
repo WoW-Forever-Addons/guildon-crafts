@@ -258,6 +258,17 @@ function ns.AltsOf(name)
     for n in set.d:sub(3):gmatch("[^;]+") do if n == name then has = true end end
     if has then for n in set.d:sub(3):gmatch("[^;]+") do if not seen[n] then seen[n] = true out[#out + 1] = n end end end
   end
+  -- (25.11.2026, Daniel's laptop: "Alts: Benedictus Flammdragos-CAMWO...") a set names the account's characters on every
+  -- realm; only those on the realm of this character or in the guild (connected realms) are its alts here
+  local realm = tostring(name):match("%-([^%-]+)$")
+  if realm then
+    local keep = {}
+    for _, n in ipairs(out) do
+      local r = n:match("%-([^%-]+)$")
+      if not r or r == realm or (ns.IsMember and ns.IsMember(n)) then keep[#keep + 1] = n end
+    end
+    out = keep
+  end
   table.sort(out)
   return out
 end

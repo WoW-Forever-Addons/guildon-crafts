@@ -79,7 +79,7 @@ function ns.DiagExtra(out)
   local note, errs = ns.LookNote()
   out(("  look: window %s, others %s%s"):format(ns.WindowLook and tostring(ns.WindowLook()) or "?", note,
     #errs > 0 and (", failed: " .. table.concat(errs, "; ")) or ""))
-  if ns.OptionsLook then out("  options: " .. ns.OptionsLook()) end -- (16.11.2026) "game settings" or "don window"
+  local Opt = LibStub("DonCore-1.0"):Get("Options", 8); if Opt and Opt.Look then out("  options: " .. tostring(Opt.Look())) end -- (24.11.2026) the look of the options window
   if ns.RecipeReport then out(("  recipes the data lacks or knows without reagents: %d (/gnc recipes)"):format(select(2, ns.RecipeReport()))) end
 end
 

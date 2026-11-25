@@ -1,5 +1,14 @@
 # Changes
 
+## 1.3.7
+
+- **Easier to read recipe book:** recipes nobody knows keep a readable name, the selected row is never dimmed, and the tooltip comes back after a click. Alts are named only from the player's own realm or the guild.
+- **Smoother play:** the guild roster is read in small slices over several frames, and the shared auction prices are released in small steps after login and at the auction house, which removes a short freeze at login. Equal prices give the same text as before.
+- **Recipe data of 24 November:** recipes refreshed with the newest game data.
+- **Options in their own window:** the options button, the gear, `/gnc options` and the minimap menu open only the Crafts & Recipes options window, with its own pages plus General. The game's AddOns list keeps a single button that leads there.
+- **Tabs and list headers in the game's look:** tabs and the group headers of lists look like the game's own, with plus and minus on the right.
+- **Lists:** the columns Skill and Crafters are wider, groups with the same name are told apart ("Other (Consumable)", "Other (Trade Goods)"), and "1 wish" and "1 day" are written in the singular.
+
 ## 1.3.6
 
 - **Smoother play:** fixed a short stutter every few seconds. With the windows closed the guild roster is no longer read anew after every update the game sends, only when the number of members or of members online changed, and at most every 10 seconds.

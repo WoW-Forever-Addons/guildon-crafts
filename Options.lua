@@ -6,9 +6,8 @@ local L = ns.L
 -- the old Options tab. The cog in the window's header, /gnc options and the Blizzard AddOns page open it.
 -- Tabs: Notifications (chat notes, how long wishes stay), Tooltips and trade, Window (the tab Profitable, minimap button,
 -- place), Ranks (who may delete other members' wishes: the guild master chooses, everyone sees his choice), Tools.
--- (16.11.2026) With the option blizzLook (on by default) and the game's templates at login the same options are pages in
--- the game's settings (Options > AddOns > Guildon: Crafts & Recipes, DonCore Settings 4 fullPages) and every cog and
--- /gnc options ends there (DonCore Options spec.redirect); the ranks (a check list) stay in DonCore's window (a button there).
+-- (24.11.2026, Daniel: "nur das Optionsfenster des jeweiligen Addons") every cog and /gnc options opens this window only;
+-- Blizzard's AddOns list has a short page with one button that opens it (DonCore Settings 7).
 ---------------------------------------------------------------------------
 local Opt = LibStub("DonCore-1.0"):Get("Options", 2)
 
@@ -24,12 +23,15 @@ local ITEMS = {
   { key = "notifyWishes", name = "Tell me about new wishes and my crafters",
     tip = "A chat message when someone wishes for something you can make, or a crafter for your wish comes online." },
   { key = "wishDays", name = "Open wishes run out after", kind = "dropdown", tip = "Old wishes disappear from the list after this time.",
-    options = function() return { { 7, L["%d days"]:format(7) }, { 14, L["%d days"]:format(14) }, { 30, L["%d days"]:format(30) } } end },
+    options = function() -- (all choices are above 1 day: no "1 days")
+      local function Days(n) return n == 1 and L["1 day"] or L["%d days"]:format(n) end
+      return { { 7, Days(7) }, { 14, Days(14) }, { 30, Days(30) } }
+    end },
   { header = "Tooltips and trade" },
   { key = "tooltips", name = "Guild lines in item tooltips (who crafts it, who wants a recipe)", tip = "Adds the guild to the game's item tooltips." },
   { key = "mailCOD", name = "Cash on delivery when the wisher pays for the reagents",
     tip = "The mail to the wisher asks for the price of the reagents on delivery." },
-  { header = "Window" },
+  { header = "Windows" },
   { key = "showProfit", name = "Tab Profitable", tip = "Recipes by profit per craft from auction prices. Off by default." },
   -- (16.11.2026, Daniel: the Blizzard look as the default for all Don addons) the windows from the game's own templates
   -- (20.11.2026, Daniel: the same option in every Don addon) the choice "Window style" with "Don look" / "Blizzard look" from
@@ -61,12 +63,12 @@ local ITEMS = {
     blockedBy = function() if not IsMaster() then return { reason = L["Only the guild master can change this."] } end end },
 }
 
--- the tabs of DonCore's window; the game's settings get the same lists as pages
+-- the tabs of DonCore's window
 local NOTIFY_MAIN = { "notifyWishes", "wishDays" }
 local TIPS_MAIN = { "tooltips", "mailCOD" }
 local WINDOW_MAIN = { "showProfit", "blizzLook", "minimapButton", "button:resetWindow" }
 
--- one change, from DonCore's window or the game's settings
+-- one change, from DonCore's window
 local function Changed(key)
   if key == "minimapButton" then if ns.RefreshMinimapButton then ns.RefreshMinimapButton() end
   elseif key == "showProfit" then if ns.RefreshTabs then ns.RefreshTabs() end
@@ -96,7 +98,6 @@ local function Tools()
   }
 end
 
-local direct = false -- (16.11.2026) DonCore's window on purpose (the ranks), not the game's settings
 local function Register()
   if not (Opt and Opt.Register) then return end
   local db = ns.db
@@ -138,8 +139,6 @@ local function Register()
     end,
     T = function(s) return L[s] end,
     labels = function(s) return L[s] end,
-    -- (16.11.2026, DonCore Options 6) with the option blizzLook every cog and /gnc options ends in the game's settings
-    redirect = function() if direct then return false end return ns.OpenGameOptions and ns.OpenGameOptions() or false end,
   })
 end
 
@@ -152,64 +151,17 @@ function ns.LookChanged()
 end
 
 ---------------------------------------------------------------------------
--- (16.11.2026) The game's settings: the same items as pages, built at login when the option blizzLook is on and the client
--- has the game's templates (else nothing there, as before). A change of the option works for the options after a /reload.
+-- (24.11.2026, Daniel: only the options window of the addon) Blizzard's AddOns list gets a short page with one button
+-- that opens our window (DonCore Settings 7); the pages themselves live in DonCore's window only.
 ---------------------------------------------------------------------------
-local category, fullPages = nil, false
-
-local function ItemOf(key)
-  for _, it in ipairs(ITEMS) do if it.key == key or it.optKey == key then return it end end
-end
-local function PageItems(keys)
-  local out = {}
-  for _, k in ipairs(keys) do out[#out + 1] = ItemOf(k) end
-  return out
-end
-
-local function GamePages()
-  return {
-    { title = "Notifications", tip = "Chat notes about wishes, and how long open wishes stay on the list.", items = PageItems(NOTIFY_MAIN) },
-    { title = "Tooltips and trade", tip = "The guild in the game's item tooltips, and the mail to a wisher.", items = PageItems(TIPS_MAIN) },
-    { title = "Window", tip = "The tab Profitable, the look of the windows, the minimap button of all Guildon parts and the place of the window.",
-      items = PageItems(WINDOW_MAIN) },
-    -- the ranks are a check list the game's settings do not have: DonCore's window shows and changes them
-    { title = "Ranks", tip = "Which guild ranks may delete other members' wishes. The guild master chooses, everyone sees his choice.", items = {
-      { kind = "button", name = "Ranks that may delete other members' wishes", button = "Show",
-        tip = "The ranks are chosen in DonCore's options window. Only the guild master can change them; everyone sees his choice.",
-        onClick = function() if ns.OpenDonWindow then ns.OpenDonWindow("ranks") end end },
-    } },
-  }
-end
-ns.GameOptionPages = GamePages -- (tests)
-
 local function BuildGameOptions()
-  category, fullPages = nil, false
-  if not (ns.BuildSettings and ns.db and ns.db.blizzLook ~= false and ns.LookKit and select(2, ns.LookKit())) then return end
-  category = ns.BuildSettings({ name = "Guildon: Crafts & Recipes", ownWindow = true, fullPages = true,
-    status = Status, tools = Tools(), pages = GamePages(),
+  if not (ns.BuildSettings and ns.db) then return end
+  ns.BuildSettings({ name = ns.OPTIONS_ID, ownWindow = true,
+    status = Status,
     db = function() return ns.db end, default = function(key) return ns.OPTION_DEFAULTS[key] end, changed = Changed,
     T = function(s) return L[s] end })
-  fullPages = category ~= nil
 end
 ns.BuildGameOptions = BuildGameOptions -- (tests)
-
--- true when the game's settings were opened at Guildon Crafts (option blizzLook, pages built at login, not in combat)
-function ns.OpenGameOptions()
-  if not (ns.db and ns.db.blizzLook ~= false and fullPages and category and Settings and Settings.OpenToCategory) then return false end
-  if InCombatLockdown and InCombatLockdown() then ns.Print(L["Not in combat."]) return true end
-  Settings.OpenToCategory(category:GetID())
-  return true
-end
-function ns.OptionsLook() return fullPages and "game settings" or "don window" end
-
--- DonCore's window at Guildon Crafts although the options are the game's (the ranks)
-function ns.OpenDonWindow(tab)
-  if not (Opt and Opt.Open) then return nil end
-  direct = true
-  local win = ns.SafeCall("options window", Opt.OpenFromBlizzard or Opt.Open, ns.OPTIONS_ID, tab)
-  direct = false
-  return win
-end
 
 function ns.OpenOptions(tab)
   if Opt and Opt.Open then Opt.Open(ns.OPTIONS_ID, tab) return true end

@@ -426,7 +426,7 @@ function Refresh()
   page.chips:SetActive(db.wishFilter)
   page.state:Update()
   page.list:SetItems(data)
-  page.count:SetText(L["%d wishes"]:format(n))
+  page.count:SetText(n == 1 and L["1 wish"] or L["%d wishes"]:format(n)) -- (24.11.2026, Daniel's video: "1 wishes")
   local sel = page.selected
   if sel and not ns.Wish(sel) then sel = nil page.overlay = nil end
   -- (18.11.2026) the card shows only the wish the player picked (it can be closed, the list then takes the whole width)

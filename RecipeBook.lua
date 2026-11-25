@@ -135,6 +135,25 @@ function ns.RecipeType(info)
   return key, label, order
 end
 
+-- (24.11.2026, Daniel's video: "Other" twice in alchemy) two types of one profession with the same name (the game's
+-- subclass "Other" of consumables and of trade goods) get the name of their item class behind: "Other (Consumable)"
+local function ClassOfType(key)
+  local cls = tonumber(tostring(key):match("^c:(%d+):") or "")
+  if not cls and tostring(key):match("^weapon:") then cls = 2 end
+  if not cls and tostring(key):match("^slot:") then cls = 4 end
+  if not cls then return nil end
+  return ns.Str((ns.Call((C_Item and C_Item.GetItemClassInfo) or GetItemClassInfo, cls)))
+end
+local function DistinctLabels(types)
+  local n = {}
+  for _, t in ipairs(types) do n[t.label] = (n[t.label] or 0) + 1 end
+  for _, t in ipairs(types) do
+    local cn = n[t.label] > 1 and ClassOfType(t.key)
+    if cn and cn ~= "" and cn ~= t.label then t.label = t.label .. " (" .. cn .. ")" end
+  end
+end
+ns.DistinctTypeLabels = DistinctLabels -- (tests)
+
 
 ---------------------------------------------------------------------------
 -- The profession sidebar (both tabs): a row per profession with "online / in the guild", the ones nobody has dimmed;
@@ -268,7 +287,7 @@ local function CooldownItems()
       status = on and "green" or nil, dim = not on,
       cells = { Colored(c.owner), { text = L[c.cd.label], color = Kit.C.muted },
         left <= 0 and { text = L["ready"], color = Kit.C.green } or { text = L["in %s"]:format(left >= 86400 and
-          L["%d days"]:format(math.ceil(left / 86400)) or L["%d h"]:format(math.ceil(left / 3600))), color = Kit.C.title } } }
+          (math.ceil(left / 86400) == 1 and L["1 day"] or L["%d days"]:format(math.ceil(left / 86400))) or L["%d h"]:format(math.ceil(left / 3600))), color = Kit.C.title } } }
   end
   return out
 end
@@ -518,6 +537,8 @@ function ns.BookEntries()
       table.insert(groups[tkey], { spell = spell, info = info, crafters = crafters, name = RecipeName(spell) })
     end
   end
+  DistinctLabels(types)
+  for _, t in ipairs(types) do if labels[t.key] then labels[t.key] = t.label end end
   local function ByOrder(a, b)
     local ra, rb = rank[a] or a.order, rank[b] or b.order
     if type(a) == "table" then ra, rb = a.order, b.order end
@@ -553,9 +574,12 @@ function ns.BookEntries()
         local lines = { ns.ProfName(info.prof or db.bookProf) .. ((info.skill or 0) > 0 and ("  " .. L["from skill %d"]:format(info.skill)) or "") }
         lines[#lines + 1] = #crafters > 0 and L["Crafters: %s"]:format(#crafters) or L["Nobody in the guild knows this recipe yet."]
         -- a recipe that makes an item: the game's item tooltip with the guild's lines below, the name in its quality colour
+        -- (25.11.2026, Daniel's picture: "kaum lesbar in grau auf dem hintergrund") a recipe nobody can craft: the row
+        -- faded (dim) and the name in the body colour, the quiet colour under the fade could not be read; the picked row
+        -- is never faded (SelectRow)
         out[#out + 1] = { kind = "table", key = spell, spell = spell, icon = ns.RecipeIcon(spell, info), dim = not can,
-          itemID = itemID, quality = quality, tipLines = lines, tipHint = L["Shift-click: link in the chat"],
-          cells = { { text = r.name, color = can and Kit.C.title or Kit.C.quiet },
+          faded = not can, itemID = itemID, quality = quality, tipLines = lines, tipHint = L["Shift-click: link in the chat"],
+          cells = { { text = r.name, color = can and Kit.C.title or Kit.C.body },
             { text = (info.skill or 0) > 0 and tostring(info.skill) or "", color = Kit.C.quiet }, Marker(crafters) },
           tooltipFn = not itemID and function() return r.name, lines, L["Shift-click: link in the chat"] end or nil }
       end
@@ -676,6 +700,24 @@ local function FillBookDetail(d, spell)
   d:End()
 end
 
+-- (25.11.2026, Daniel's pictures) picking a row: the picked row is drawn in full (a faded row on the gold selection
+-- could not be read), and the tooltip of the row under the mouse comes back after the list is drawn anew
+local function SelectRow(list, picked)
+  for _, e in ipairs(list.items or {}) do
+    if e.faded ~= nil then e.dim = e.faded and e ~= picked end
+  end
+  list:Select(picked)
+end
+local function TipUnderMouse(list)
+  for _, r in ipairs(list.Rows and list:Rows() or {}) do
+    if r.item and r.IsMouseOver and r:IsVisible() and r:IsMouseOver() then
+      local enter = r.GetScript and r:GetScript("OnEnter")
+      if enter then pcall(enter, r) end
+      break
+    end
+  end
+end
+
 local function RefreshBook()
   if not book then return end
   local db = BookState()
@@ -703,7 +745,7 @@ local function RefreshBook()
   ns.db.bookSpell = sel
   local picked
   for _, e in ipairs(data) do if e.spell and e.spell == sel then picked = e break end end
-  book.list:Select(picked)
+  SelectRow(book.list, picked)
   if book._w then book:Layout(book._w, book._h, book._mode) end
 end
 ns.RefreshBook = RefreshBook
@@ -768,7 +810,7 @@ ns.PAGE_BUILDERS.recipes = function(p)
   local function CloseCard()
     p.overlay, p.selected = nil, nil
     ns.db.bookSpell = nil
-    p.list:Select(nil)
+    SelectRow(p.list, nil)
     ns.Relayout()
   end
   p.CloseCard = CloseCard
@@ -791,16 +833,17 @@ ns.PAGE_BUILDERS.recipes = function(p)
       if p.selected == e.spell and p.detail:IsShown() then CloseCard() return end
       p.selected, p.overlay = e.spell, true
       ns.db.bookSpell = e.spell
-      p.list:Select(e)
+      SelectRow(p.list, e)
       ns.Relayout()
+      TipUnderMouse(p.list)
     end,
   })
   -- (18.11.2026, Daniel's pictures: two columns of numbers without a head) a head as in the tabs Professions and Profitable,
   -- each column explained in its tooltip
   p.head = UI.TableHead(p, { icon = true, columns = {
     { key = "name", text = L["Recipe"], width = 120, grow = true },
-    { key = "skill", text = L["Skill"], width = 60, justify = "RIGHT", tooltip = { L["Skill"], { L["The skill from which the recipe can be learned."] } } },
-    { key = "mark", text = L["Crafters"], width = 70, justify = "RIGHT",
+    { key = "skill", text = L["Skill"], width = 70, justify = "RIGHT", tooltip = { L["Skill"], { L["The skill from which the recipe can be learned."] } } },
+    { key = "mark", text = L["Crafters"], width = 84, justify = "RIGHT", -- (24.11.2026, Daniel's video: cramped) 60/70 before
       tooltip = { L["Crafters"], { L["How many in the guild can craft it. The tick is green while one of them is online."] } } } } })
   p.head:Bind(p.list)
   p.list:SetEmpty(L["No recipe fits the filter."])

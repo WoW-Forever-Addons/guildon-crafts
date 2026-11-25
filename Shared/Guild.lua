@@ -173,53 +173,93 @@ local function Counts()
   local total, online = ns.Call(GetNumGuildMembers)
   return ns.Num(total) or 0, ns.Num(online)
 end
-local function Rebuild()
-  local list, prev, by = R.members, R.byName, R.spare
+-- (24.11.2026, Ruckler, DonMonitor on the laptop: timer Guild.lua:380 avg 14.6 ms, max 22.5 ms about every 30 s) the
+-- rebuild runs in slices: members are read until SLICE_MS have passed (SLICE_N members where the client has no
+-- debugprofilestop), the next ones in the next frame. The new list and lookup are made aside and swapped in at the end,
+-- so the parts read the last whole roster until then. A GUILD_ROSTER_UPDATE while slices run (the game's list may have
+-- changed under the indexes) starts the list again; after AGAIN_MAX such starts the rest runs in one go. Then each part
+-- is told in a frame of its own (who came online or went offline, then its prune and its page).
+local SLICE_MS, SLICE_N, AGAIN_MAX = 4, 150, 3
+local function Begin(b)
+  local list = R.spareList
+  if type(list) ~= "table" or list == R.members then list = {} end
+  local by = R.spareBy
+  if type(by) ~= "table" or by == R.byName or by == R.spare then by = {} end
   for k in pairs(by) do by[k] = nil end
-  local n, t = 0, GetTime()
-  local total, onlineCount = Counts()
+  b.list, b.by, b.prev, b.n, b.i = list, by, R.byName, 0, 1
+  b.t = GetTime()
+  b.total, b.onlineCount = Counts()
+  b.last = math.min(b.total, 1000)
   local realm, cache = Realm(), R.full
-  local sameRealm = R.fullRealm == realm
-  if not sameRealm or R.fullN > 3000 then
+  b.realm, b.sameRealm = realm, R.fullRealm == realm
+  if not b.sameRealm or R.fullN > 3000 then
     for k in pairs(cache) do cache[k] = nil end
     R.fullRealm, R.fullN = realm, 0
   end
-  local before, joined = #list, false
-  for i = 1, math.min(total, 1000) do
-    local ok, name, rank, rankIndex, level, class, zone, _, _, online, _, classFile = pcall(GetGuildRosterInfo, i)
-    local full = ok and type(name) == "string" and cache[name]
-    if ok and not full then
-      full = ns.FullName(name)
-      if full and realm ~= "?" and type(name) == "string" then cache[name] = full R.fullN = R.fullN + 1 end
-    end
-    if full and not by[full] then
-      local m = prev[full]
-      local wasOff = m ~= nil and not m.online
-      if not m then m, joined = {}, true end
-      if not (sameRealm and m.short and m.name == full) then m.short = ns.ShortName(full) end
-      m.name, m.rank, m.rankIndex = full, ns.Str(rank) or "", ns.Num(rankIndex) or 99
-      m.level, m.class, m.classFile = ns.Num(level) or 0, ns.Str(class) or "", ns.Str(classFile) or ""
-      m.zone, m.online = ns.Str(zone) or "", online == true or online == 1
-      if m.online or not GetGuildRosterLastOnline then
-        m.lastOnline = nil
-        R.lastAt[full] = nil
-      elseif not (wasOff and m.lastOnline and R.lastAt[full] and t - R.lastAt[full] < LAST_ONLINE_AGAIN and t >= R.lastAt[full]) then
-        m.lastOnline = nil
-        local okL, years, months, days = pcall(GetGuildRosterLastOnline, i)
-        if okL and ns.Num(days) then m.lastOnline = (ns.Num(years) or 0) * 365 + (ns.Num(months) or 0) * 30 + days end
-        R.lastAt[full] = t
+  b.before, b.joined = #R.members, false
+end
+-- one member of the game's list (index i) into the new list
+local function Read(b, i)
+  local ok, name, rank, rankIndex, level, class, zone, _, _, online, _, classFile = pcall(GetGuildRosterInfo, i)
+  local cache = R.full
+  local full = ok and type(name) == "string" and cache[name]
+  if ok and not full then
+    full = ns.FullName(name)
+    if full and b.realm ~= "?" and type(name) == "string" then cache[name] = full R.fullN = R.fullN + 1 end
+  end
+  local by = b.by
+  if not full or by[full] then return end
+  local m = b.prev[full]
+  local wasOff = m ~= nil and not m.online
+  if not m then m, b.joined = {}, true end
+  if not (b.sameRealm and m.short and m.name == full) then m.short = ns.ShortName(full) end
+  m.name, m.rank, m.rankIndex = full, ns.Str(rank) or "", ns.Num(rankIndex) or 99
+  m.level, m.class, m.classFile = ns.Num(level) or 0, ns.Str(class) or "", ns.Str(classFile) or ""
+  m.zone, m.online = ns.Str(zone) or "", online == true or online == 1
+  local lastAt, t = R.lastAt, b.t
+  if m.online or not GetGuildRosterLastOnline then
+    m.lastOnline = nil
+    lastAt[full] = nil
+  elseif not (wasOff and m.lastOnline and lastAt[full] and t - lastAt[full] < LAST_ONLINE_AGAIN and t >= lastAt[full]) then
+    m.lastOnline = nil
+    local okL, years, months, days = pcall(GetGuildRosterLastOnline, i)
+    if okL and ns.Num(days) then m.lastOnline = (ns.Num(years) or 0) * 365 + (ns.Num(months) or 0) * 30 + days end
+    lastAt[full] = t
+  end
+  local n = b.n + 1
+  b.n = n
+  b.list[n] = m
+  by[full] = m
+end
+-- members until the time is up (whole: all that are left); true when the list is read
+local function Slice(b, whole)
+  local clock = not whole and type(debugprofilestop) == "function" and debugprofilestop or nil
+  local t0 = clock and clock()
+  local i, last, k = b.i, b.last, 0
+  while i <= last do
+    Read(b, i)
+    i, k = i + 1, k + 1
+    if not whole and k % 10 == 0 and i <= last then
+      if clock then
+        if clock() - t0 >= SLICE_MS then break end
+      elseif k >= SLICE_N then
+        break
       end
-      n = n + 1
-      list[n] = m
-      by[full] = m
     end
   end
+  b.i = i
+  return i > last
+end
+-- the list is read: swapped in; who came online or went offline (the lists up, down)
+local function Finish(b)
+  local list, by, prev, n = b.list, b.by, b.prev, b.n
   for i = #list, n + 1, -1 do list[i] = nil end
   for full in pairs(prev) do if not by[full] then R.lastAt[full] = nil end end
-  R.byName, R.spare = by, prev
+  R.spareList, R.members = R.members, list
+  R.spareBy, R.byName = prev, by
   R.gen, R.sorted = R.gen + 1, false
-  if joined or n ~= before then R.memberGen = R.memberGen + 1 end
-  R.seenTotal, R.seenOnline, R.builtAt, R.skipped = total, onlineCount, t, false
+  if b.joined or n ~= b.before then R.memberGen = R.memberGen + 1 end
+  R.seenTotal, R.seenOnline, R.builtAt, R.skipped = b.total, b.onlineCount, b.t, false
   -- who just came online (not at the first roster of the session) and who just went offline
   local was, now = R.wasOnline, R.spareOnline
   for k in pairs(now) do now[k] = nil end
@@ -235,7 +275,55 @@ local function Rebuild()
   -- in the order of the sorted list, as before
   if up and #up > 1 then table.sort(up, ByShort) end
   if down and #down > 1 then table.sort(down, ByShort) end
-  for _, c in ipairs(R.copies) do c.moved(up, down) end
+  return up, down
+end
+-- the parts are told one per frame: moved of each, then (after a rebuild of RosterChanged) changed of each
+local function Tell(steps, k)
+  local s = steps[k]
+  if not s then return end
+  -- the next one first: an error in this part does not keep the others from being told
+  if steps[k + 1] then ns.After(0, function() Tell(steps, k + 1) end) end
+  s()
+end
+-- a rebuild: notify = the parts' changed() follow (RosterChanged); whole = all now, the parts' moved() too (tests,
+-- /gn demo). The running rebuild is R.build (shared by the parts); R.again: an update came while it ran.
+local function Rebuild(notify, whole)
+  local b = R.build
+  if b and whole then
+    -- a rebuild in slices runs: done now from the start (the list may have changed), its parts told as it would have
+    b.whole, R.again = true, true
+    b.step()
+    return
+  end
+  if b then
+    -- (RosterChanged waits for a running one, so this should not happen) the running one starts again and tells the parts
+    R.again, b.notify = true, b.notify or notify
+    return
+  end
+  b = { notify = notify, whole = whole, again = 0 }
+  R.build, R.again = b, false
+  Begin(b)
+  local function Step()
+    if R.build ~= b then return end
+    b.at = GetTime()
+    if R.again then
+      R.again = false
+      b.again = b.again + 1
+      Begin(b)
+    end
+    if not Slice(b, b.whole or b.again >= AGAIN_MAX) then ns.After(0, Step) return end
+    R.build = nil
+    if b.notify then R.pending = false end
+    local up, down = Finish(b)
+    local steps = {}
+    for _, c in ipairs(R.copies) do
+      if b.whole then c.moved(up, down) else steps[#steps + 1] = function() c.moved(up, down) end end
+    end
+    if b.notify then for _, c in ipairs(R.copies) do steps[#steps + 1] = c.changed end end
+    Tell(steps, 1)
+  end
+  b.step = Step
+  Step()
 end
 
 -- this part's view: the shared roster, with the example members of /gn demo (Demo.lua) added when they are on; those
@@ -358,29 +446,40 @@ R.copies[#R.copies + 1] = {
 }
 
 -- force: not looked at cheaply first (login, the own guild changed, a window opened, an unknown sender)
+-- (24.11.2026) R.why counts what started the rebuilds (/dump GuildSharedRoster.why): counts (the game's counts of members
+-- or members online changed), idle (a minute without a change), force (login, guild, window, unknown sender), open (a
+-- window open or no roster yet), again (an update while the slices ran)
+local function Why(k) local w = R.why if type(w) ~= "table" then w = {} R.why = w end w[k] = (w[k] or 0) + 1 end
 local function RosterChanged(force)
-  if R.pending then return end
+  local t = GetTime()
+  local b = R.build
+  -- a rebuild runs: the game's list may have changed under it, it starts again (an error left it behind: dropped)
+  if b and b.at and t - b.at < 5 and t >= b.at then R.again = true Why("again") return end
+  if b then R.build = nil R.pending = false end
+  if R.pending and R.pendingAt and t - R.pendingAt < 30 and t >= R.pendingAt then return end
   local fast = false
   for _, c in ipairs(R.copies) do
     if c.open() or c.empty() then fast = true break end
   end
   local delay = fast and 0.5 or ROSTER_SLOW
+  local why = fast and "open" or (force == true and "force") or nil
   if not fast and force ~= true then
-    local age = R.builtAt and GetTime() - R.builtAt or -1
+    local age = R.builtAt and t - R.builtAt or -1
     if age >= 0 then
       local total, online = Counts()
-      if total == R.seenTotal and online == R.seenOnline and age < (online and ROSTER_IDLE or ROSTER_BLIND) then
+      local same = total == R.seenTotal and online == R.seenOnline
+      if same and age < (online and ROSTER_IDLE or ROSTER_BLIND) then
         R.skipped = true
         return
       end
+      why = same and "idle" or "counts"
       if ROSTER_GAP - age > delay then delay = ROSTER_GAP - age end
     end
   end
-  R.pending = true
+  R.pending, R.pendingAt = true, t
   ns.After(delay, function()
-    R.pending = false
-    Rebuild()
-    for _, c in ipairs(R.copies) do c.changed() end
+    Why(why or "first")
+    Rebuild(true)
   end)
 end
 
@@ -391,9 +490,25 @@ function ns.RosterWanted()
 end
 -- a message in the guild channel from a name the roster does not have (he just joined): asked for and rebuilt soon,
 -- at most every MISS_AGAIN seconds
-function ns.RosterMiss()
+-- (24.11.2026) and each name at most every MISS_NAME seconds: a sender the roster still does not have after the rebuild
+-- (a name written another way, a member past the first 1000) asked for a rebuild every 30 s before; the last names are
+-- kept in R.missNames (/dump GuildSharedRoster.missNames)
+local MISS_NAME = 600
+function ns.RosterMiss(name)
   local t = GetTime()
   if R.missAt and t - R.missAt < MISS_AGAIN and t >= R.missAt then return end
+  if type(name) == "string" then
+    local seen = R.missBy
+    if type(seen) ~= "table" or (R.missByN or 0) > 200 then seen = {} R.missBy, R.missByN = seen, 0 end
+    local at = seen[name]
+    if at and t - at < MISS_NAME and t >= at then return end
+    if not at then R.missByN = (R.missByN or 0) + 1 end
+    seen[name] = t
+    local last = R.missNames
+    if type(last) ~= "table" then last = {} R.missNames = last end
+    table.insert(last, 1, name)
+    last[6] = nil
+  end
   R.missAt = t
   ns.RequestRoster()
   RosterChanged(true)
@@ -484,4 +599,4 @@ end)
 -- (21.11.2026, Ruckler) one request for all parts (ns.RequestRoster keeps the time in the shared roster)
 ns.On("PLAYER_ENTERING_WORLD", function() ns.RequestRoster() end)
 
-function ns.RebuildRoster() Rebuild() end -- (tests, /gn demo)
+function ns.RebuildRoster() Rebuild(false, true) end -- (tests, /gn demo): all at once

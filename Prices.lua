@@ -72,10 +72,11 @@ function ns.PriceAddons()
   return out
 end
 
--- own price of an item: newest of the adapters and the own scans
-function ns.LocalPrice(item)
+-- own price of an item: newest of the adapters and the own scans; adapters: the list of ns.PriceAddons() when the caller
+-- asks for many items (24.11.2026, the share at login asked for the list again for every item)
+function ns.LocalPrice(item, adapters)
   local best, bt, src
-  for _, a in ipairs(ns.PriceAddons()) do
+  for _, a in ipairs(adapters or ns.PriceAddons()) do
     local ok, p, t = pcall(a.get, item)
     if ok and p and (not bt or (t or 0) > bt) then best, bt, src = p, t or time(), a.key end
   end
@@ -106,28 +107,66 @@ function ns.DecodePrices(d)
 end
 
 -- the items worth sharing: reagents and results of the recipes the guild knows, own recipes first
-local function RelevantItems()
-  local items, seen = {}, {}
-  local function Add(id) if id and id > 0 and not seen[id] then seen[id] = true items[#items + 1] = id end end
-  local idx = ns.CraftIndex()
-  for spell in pairs(idx.crafters) do
-    local info = ns.RecipeInfo(spell)
-    Add(info.item)
-    for _, r in ipairs(info.reagents or {}) do Add(r[1]) end
+local function AddItems(st, spell)
+  local info = ns.RecipeInfo(spell)
+  local items, seen = st.items, st.seen
+  local id = info.item
+  if id and id > 0 and not seen[id] then seen[id] = true items[#items + 1] = id end
+  for _, r in ipairs(info.reagents or {}) do
+    id = r[1]
+    if id and id > 0 and not seen[id] then seen[id] = true items[#items + 1] = id end
   end
-  return items
+end
+local function RelevantItems()
+  local st = { items = {}, seen = {} }
+  for spell in pairs(ns.CraftIndex().crafters) do AddItems(st, spell) end
+  return st.items
 end
 ns.RelevantItems = RelevantItems
 
-function ns.SharePrices(force, every)
+-- (24.11.2026, Ruckler, DonMonitor on the laptop: timer Prices.lua:326 57.3 ms once at login) a share is made in steps:
+-- the recipes the guild knows, their items, the own price of each item, then the set. ns.SharePrices does all at once
+-- (tests, the button); after the login and after the auction house ns.SharePricesSoon does them SLICE_MS at a time, one
+-- step a frame (SLICE_N where the client has no debugprofilestop).
+local SLICE_MS, SLICE_N = 4, 100
+local function NewShare(force, every)
   local db = DB()
-  if not force and (db.priceShared or 0) > time() - (every or SHARE_EVERY) then return false end
-  local list, now = {}, time()
-  for _, item in ipairs(RelevantItems()) do
-    local p, t, src = ns.LocalPrice(item)
-    if p and t and now - t < 14 * 86400 then list[#list + 1] = { item, p, t, src } end
+  if not force and (db.priceShared or 0) > time() - (every or SHARE_EVERY) then return nil end
+  local spells = {}
+  for spell in pairs(ns.CraftIndex().crafters) do spells[#spells + 1] = spell end
+  return { spells = spells, si = 1, items = {}, seen = {}, ii = 1, list = {}, now = time(), adapters = ns.PriceAddons() }
+end
+-- true when every item has its price
+local function ShareSlice(st, whole)
+  local clock = not whole and type(debugprofilestop) == "function" and debugprofilestop or nil
+  local t0, k = clock and clock(), 0
+  local function Full()
+    k = k + 1
+    if whole or k % 10 ~= 0 then return false end
+    if clock then return clock() - t0 >= SLICE_MS end
+    return k >= SLICE_N
   end
-  table.sort(list, function(a, b) return a[3] > b[3] end)
+  local spells, items = st.spells, st.items
+  while st.si <= #spells do
+    AddItems(st, spells[st.si])
+    st.si = st.si + 1
+    if Full() then return false end
+  end
+  local list, now, adapters = st.list, st.now, st.adapters
+  while st.ii <= #items do
+    local item = items[st.ii]
+    st.ii = st.ii + 1
+    local p, t, src = ns.LocalPrice(item, adapters)
+    if p and t and now - t < 14 * 86400 then list[#list + 1] = { item, p, t, src } end
+    if Full() and st.ii <= #items then return false end
+  end
+  return true
+end
+local function FinishShare(st)
+  -- the ages from now: the prices were asked for over several frames
+  local list, now = st.list, time()
+  -- (24.11.2026) the same prices give the same text (equal times by item): an unchanged list is not sent again
+  table.sort(list, function(a, b) if a[3] ~= b[3] then return a[3] > b[3] end return a[1] < b[1] end)
   local parts = { "1" }
   for i = 1, math.min(#list, MAX_SHARE) do
     local e = list[i]
@@ -136,9 +175,36 @@ function ns.SharePrices(force, every)
   -- (Daniel 26.10.: scanned right after installing Auctionator, nothing was shared) an empty list does not start the waiting time:
   -- the login check with no prices yet had blocked the share after the first scan for 6 hours
   if #parts == 1 then return false end
-  db.priceShared = now
+  DB().priceShared = now
   return ns.SetOwn("price", table.concat(parts, ";"))
 end
+
+function ns.SharePrices(force, every)
+  local st = NewShare(force, every)
+  if not st then return false end
+  ShareSlice(st, true)
+  return FinishShare(st)
+end
+
+-- in steps, one a frame; a second call while one runs is left out (one left behind by an error: after 10 s)
+local sharing
+function ns.SharePricesSoon(force, every)
+  local t = GetTime()
+  if sharing and sharing.at and t - sharing.at < 10 and t >= sharing.at then return end
+  local st = NewShare(force, every)
+  if not st then return end
+  sharing = st
+  local function Step()
+    if sharing ~= st then return end
+    st.at = GetTime()
+    if not ShareSlice(st) then ns.After(0, Step) return end
+    sharing = nil
+    -- the set itself (sort, text, checksum) in a frame of its own
+    ns.After(0, function() FinishShare(st) end)
+  end
+  Step()
+end
+function ns.PriceShareRunning() return sharing ~= nil end -- (tests)
 
 ns.RegisterKind("price", {
   validate = function(d) return ns.DecodePrices(d) ~= nil end,
@@ -318,10 +384,10 @@ ns.On("AUCTION_HOUSE_CLOSED", function()
   scan.open, scan.queue, scan.current = false, {}, nil
   ns.InvalidatePrices()
   -- after an AH addon's scan: share the new prices (at most every half hour; an unchanged list is not sent again anyway)
-  ns.After(2, function() ns.SharePrices(false, 1800) end)
+  ns.After(2, function() ns.SharePricesSoon(false, 1800) end)
 end)
 ns.On("AUCTION_ITEM_LIST_UPDATE", function() ns.After(0.2, ReadEraList) end)
 ns.On("COMMODITY_SEARCH_RESULTS_UPDATED", function(_, item) ReadRetail(ns.Num(item)) end)
 ns.On("ITEM_SEARCH_RESULTS_UPDATED", function(_, key) ReadRetail(type(key) == "table" and ns.Num(key.itemID) or scan.current) end)
-ns.On("PLAYER_LOGIN", function() ns.After(20, function() DB() ns.SharePrices() end) end)
+ns.On("PLAYER_LOGIN", function() ns.After(20, function() DB() ns.SharePricesSoon() end) end)
 ns.OnInit(function() DB() end)
