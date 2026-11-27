@@ -381,6 +381,7 @@ L["Everything is in. Fill in the letter, then send it yourself."] = "모두 들�
 L["The wisher pays for the reagents (no auction house price known yet)."] = "요청자가 재료비를 냅니다 (아직 경매장 가격을 모릅니다)."
 L["Agreed: the wisher pays %s (reagents %s, tip %s)."] = "합의: 요청자가 %s 지불 (재료 %s, 팁 %s)."
 L["Cash on delivery %s (reagents %s, tip %s)."] = "대금 청구 %s (재료 %s, 팁 %s)."
+L["The game has switched cash on delivery off: settle the %s with the wisher by trade."] = "게임에서 대금 청구가 꺼져 있습니다: %s은(는) 요청자와 거래로 정산하세요."
 L["Cash on delivery for your order %s:"] = "주문 %s 대금 청구:"
 L["%d x %s at %s = %s"] = "%d x %s 개당 %s = %s"
 L["Reagents: %s (auction house average)"] = "재료: %s (경매장 평균)"

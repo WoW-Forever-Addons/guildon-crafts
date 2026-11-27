@@ -382,6 +382,7 @@ L["Everything is in. Fill in the letter, then send it yourself."] = "Tout est l�
 L["The wisher pays for the reagents (no auction house price known yet)."] = "Le demandeur paie les composants (pas encore de prix HV connu)."
 L["Agreed: the wisher pays %s (reagents %s, tip %s)."] = "Convenu : le demandeur paie %s (composants %s, pourboire %s)."
 L["Cash on delivery %s (reagents %s, tip %s)."] = "Contre remboursement %s (composants %s, pourboire %s)."
+L["The game has switched cash on delivery off: settle the %s with the wisher by trade."] = "Le jeu a désactivé le contre remboursement : réglez les %s avec le demandeur par échange."
 L["Cash on delivery for your order %s:"] = "Contre remboursement pour votre commande %s :"
 L["%d x %s at %s = %s"] = "%d x %s à %s = %s"
 L["Reagents: %s (auction house average)"] = "Composants : %s (moyenne HV)"

@@ -1,5 +1,9 @@
 # Changes
 
+## 1.3.8
+
+- **Cash on delivery switched off by the game:** since a recent WoW Forever client update the game can switch cash on delivery off for mail. Crafts & Recipes then leaves the C.O.D. button and amount alone and the bar says to settle the price with the wisher by trade, instead of sending the goods as if they were paid on delivery.
+
 ## 1.3.7
 
 - **Easier to read recipe book:** recipes nobody knows keep a readable name, the selected row is never dimmed, and the tooltip comes back after a click. Alts are named only from the player's own realm or the guild.

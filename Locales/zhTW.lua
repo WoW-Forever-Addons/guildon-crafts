@@ -381,6 +381,7 @@ L["Everything is in. Fill in the letter, then send it yourself."] = "全部都�
 L["The wisher pays for the reagents (no auction house price known yet)."] = "許願者支付材料費（尚無拍賣場價格）。"
 L["Agreed: the wisher pays %s (reagents %s, tip %s)."] = "已約定：許願者支付 %s（材料 %s，小費 %s）。"
 L["Cash on delivery %s (reagents %s, tip %s)."] = "貨到付款 %s（材料 %s，小費 %s）。"
+L["The game has switched cash on delivery off: settle the %s with the wisher by trade."] = "遊戲已關閉貨到付款：請與許願者透過交易結清 %s。"
 L["Cash on delivery for your order %s:"] = "你的訂單 %s 貨到付款："
 L["%d x %s at %s = %s"] = "%d x %s 單價 %s = %s"
 L["Reagents: %s (auction house average)"] = "材料：%s（拍賣場平均）"

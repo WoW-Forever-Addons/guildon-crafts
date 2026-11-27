@@ -382,6 +382,7 @@ L["Everything is in. Fill in the letter, then send it yourself."] = "Все на
 L["The wisher pays for the reagents (no auction house price known yet)."] = "Заказчик платит за реагенты (цена аукциона пока неизвестна)."
 L["Agreed: the wisher pays %s (reagents %s, tip %s)."] = "Договорено: заказчик платит %s (реагенты %s, чаевые %s)."
 L["Cash on delivery %s (reagents %s, tip %s)."] = "Наложенный платеж %s (реагенты %s, чаевые %s)."
+L["The game has switched cash on delivery off: settle the %s with the wisher by trade."] = "Игра отключила наложенный платеж: рассчитайтесь за %s с заказчиком через обмен."
 L["Cash on delivery for your order %s:"] = "Наложенный платеж за ваш заказ %s:"
 L["%d x %s at %s = %s"] = "%d x %s по %s = %s"
 L["Reagents: %s (auction house average)"] = "Реагенты: %s (средняя цена аукциона)"

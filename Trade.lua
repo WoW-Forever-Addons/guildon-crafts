@@ -190,6 +190,15 @@ local function UnitPrice(item)
   return ns.Price and ns.Price(item), false
 end
 
+-- (27.11.2026) Forever build 70959 added C_Mail.IsCODEnabled: when it says false the game keeps the C.O.D. button grey and
+-- the letter must not go out as if it were cash on delivery. Clients without the call (Era) always allow it.
+function ns.CODEnabled()
+  local m = _G.C_Mail
+  if not (m and type(m.IsCODEnabled) == "function") then return true end
+  local ok, on = pcall(m.IsCODEnabled)
+  return not ok or on ~= false
+end
+
 function ns.OrderCOD(o)
   local e = o.wish
   if o.kind ~= "goods" or e.pay ~= "p" or (ns.db and ns.db.mailCOD == false) or not ns.ReagentCost then return nil end
@@ -412,6 +421,9 @@ local function PayText(o)
   if state.mode == "trade" then
     return L["Agreed: the wisher pays %s (reagents %s, tip %s)."]:format(M(cod.total), M(cod.reagents), M(cod.tip))
   end
+  if not ns.CODEnabled() then
+    return L["The game has switched cash on delivery off: settle the %s with the wisher by trade."]:format(M(cod.total))
+  end
   return L["Cash on delivery %s (reagents %s, tip %s)."]:format(M(cod.total), M(cod.reagents), M(cod.tip))
 end
 
@@ -474,7 +486,7 @@ end
 -- the C.O.D. button and the amount (the game's send reads them and sets the amount itself; SetSendMailCOD alone was lost).
 -- The game allows C.O.D. only with an attachment, so it is set once the first stack is in, once per letter.
 function ns.ApplyCOD()
-  if state.mode ~= "mail" or not state.cod or state.codDone then return false end
+  if state.mode ~= "mail" or not state.cod or state.codDone or not ns.CODEnabled() then return false end
   if MailItemCount() == 0 then return false end
   local codBtn, moneyBtn = _G.SendMailCODButton, _G.SendMailSendMoneyButton
   if codBtn then
@@ -808,7 +820,7 @@ function ns.FillLetter()
   -- (04.11.2026, Era-Test) with the reckoning in the letter's text; the C.O.D. button and amount follow with the first stack
   state.cod, state.codDone = nil, false
   local cod = ns.OrderCOD(o)
-  if cod then
+  if cod and ns.CODEnabled() then
     state.cod = cod.total
     local body = ns.CODBody(o, cod)
     if body and SendMailBodyEditBox then ns.Call(SendMailBodyEditBox.SetText, SendMailBodyEditBox, body) end
